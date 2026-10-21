@@ -1,0 +1,19 @@
+[build]
+beforeDevCommand = "npm run dev"
+beforeBuildCommand = "npm run build"
+devUrl = "http://localhost:5173"
+frontendDist = "../dist"
+
+[app]
+windows = [
+  { title = "School Fees System", width = 1200, height = 800 }
+]
+
+[[app.security.capabilities]]
+identifier = "main-capability"
+description = "Main capability"
+windows = ["main"]
+permissions = [
+  "core:default",
+  "shell:allow-open"
+]

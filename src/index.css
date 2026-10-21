@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-only {
+    display: block !important;
+  }
+  
+  body {
+    background: white;
+  }
+  
+  @page {
+    margin: 1cm;
+  }
+}
+
+@media print and (max-width: 80mm) {
+  @page {
+    size: 80mm auto;
+    margin: 2mm;
+  }
+}
