@@ -15,7 +15,7 @@ Offline-first desktop app for registering students, setting term fees, batch bil
 - **Soft state only** — no hard delete of financial rows (use CANCELLED/INACTIVE)
 - **UUIDs for rows, human numbers** — STU-YYYY-0001, INV-YYYY-0003, REC-YYYY-0004 from counters
 - **Business rules in transactions** — batch billing and payments are atomic
-- **One invoice per class batch** — student in two classes gets two TERM invoices in same term
+- **One invoice per student per term** — a student is enrolled in one class per term and is invoiced once for it
 - **Multi-invoice payments** — one payment can cover multiple invoices via PAYMENT_ALLOCATIONS
 - **Discounts** — both FIXED (cents) and PERCENT (basis points, 1-10000), stackable, targeted to specific fee items or whole invoice, each saved as negative line
 - **Supplementary invoices** — late fees create SUPPLEMENTARY invoices; fixed discounts not re-applied in same term to late fees
@@ -31,7 +31,7 @@ school-fees/
 │  ├─ api/                       # invoke() client, error mapping
 │  ├─ reports/                   # StatementDocument, InvoiceDocument, ReceiptDocument
 │  ├─ lib/                       # money.ts, dates.ts, validation (zod)
-│  └─ types/schema.ts            # generated from Rust
+│  └─ types/schema/              # generated from Rust by ts-rs
 ├─ src-tauri/
 │  ├─ migrations/                # 0001_init.sql, ...
 │  └─ src/
@@ -65,7 +65,7 @@ school-fees/
 ## Billing Rules
 - Batch billing: for each enrolled student in class+term, create TERM invoice from FEE_STRUCTURE (snapshot items)
 - One live TERM invoice per student per term (partial unique index)
-- Student in two classes → two TERM invoices
+- A student belongs to one class per term (`UNIQUE (student_id, term_id)` on enrollments), so a term produces exactly one TERM invoice per student
 - Late student fee added after billing → create SUPPLEMENTARY invoice with pending fees
 - Supplementary invoices have fee_structure_id=NULL, kind=SUPPLEMENTARY
 - Each discount as negative line
