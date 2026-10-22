@@ -1,0 +1,4 @@
+[env]
+# ts-rs writes the generated TypeScript bindings straight into the frontend so
+# the Rust types and the TypeScript types can never drift apart.
+TS_RS_EXPORT_DIR = "../src/types/schema"
