@@ -16,7 +16,6 @@ pub struct AppState {
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let app_dir = app
                 .path()

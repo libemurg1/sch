@@ -35,22 +35,5 @@
       "icons/128x128@2x.png",
       "icons/icon.ico"
     ]
-  },
-  "plugins": {
-    "shell": {
-      "open": {
-        "enable": true,
-        "scope": [
-          {
-            "name": "app-data",
-            "path": "$APPDATA/**"
-          },
-          {
-            "name": "urls",
-            "url": "https://*"
-          }
-        ]
-      }
-    }
   }
 }

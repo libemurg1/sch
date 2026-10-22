@@ -43,7 +43,9 @@ impl Db {
             ));
         }
 
-        if current_version < known_version {
+        if current_version < known_version && has_user_tables(&conn)? {
+            // Only a database that already holds data is worth a snapshot: a
+            // fresh install has nothing to lose.
             backup::backup_database(&conn, app_dir)?;
         }
 
@@ -136,6 +138,17 @@ fn configure_connection(conn: &Connection) -> AppResult<()> {
     Ok(())
 }
 
+/// Whether the database already holds tables, which means it holds data worth
+/// backing up before a migration runs.
+fn has_user_tables(conn: &Connection) -> AppResult<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
 fn apply_migrations(conn: &Connection) -> AppResult<()> {
     let current_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
@@ -201,6 +214,64 @@ mod tests {
                 .unwrap();
             assert_eq!(tables, 1);
         }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fresh_install_does_not_create_a_backup() {
+        let dir = temp_dir("fresh");
+        let db = Db::open(&dir).unwrap();
+        drop(db);
+
+        let backups = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.starts_with("school_backup_"))
+                    .unwrap_or(false)
+            })
+            .count();
+        assert_eq!(backups, 0, "a fresh install has nothing worth backing up");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn restore_brings_back_the_backup_contents() {
+        let dir = temp_dir("restore");
+        let db = Db::open(&dir).unwrap();
+
+        db.transaction(|conn| {
+            Ok(conn.execute(
+                "INSERT INTO classes (id, name, grade_level, capacity) VALUES ('c1', 'Grade 1', 1, 30)",
+                [],
+            )?)
+        })
+        .unwrap();
+
+        let backup_path = db.backup(&dir).unwrap();
+
+        db.transaction(|conn| Ok(conn.execute("DELETE FROM classes", [])?))
+            .unwrap();
+
+        let count: i64 = db
+            .with_conn(|conn| {
+                Ok(conn.query_row("SELECT COUNT(*) FROM classes", [], |r| r.get(0))?)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+
+        db.restore_from_backup(&backup_path).unwrap();
+
+        let count: i64 = db
+            .with_conn(|conn| {
+                Ok(conn.query_row("SELECT COUNT(*) FROM classes", [], |r| r.get(0))?)
+            })
+            .unwrap();
+        assert_eq!(count, 1);
 
         let _ = fs::remove_dir_all(&dir);
     }
