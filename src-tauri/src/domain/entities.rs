@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct Student {
     pub id: String,
@@ -19,6 +21,8 @@ pub struct Student {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct Class {
     pub id: String,
@@ -28,6 +32,8 @@ pub struct Class {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct Term {
     pub id: String,
@@ -39,6 +45,8 @@ pub struct Term {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct Enrollment {
     pub id: String,
@@ -50,36 +58,47 @@ pub struct Enrollment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct FeeItem {
     pub id: String,
     pub fee_structure_id: String,
     pub description: String,
+    #[ts(as = "f64")]
     pub amount_cents: i64,
     pub discountable: bool,
     pub sort_order: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct FeeStructure {
     pub id: String,
     pub class_id: String,
     pub term_id: String,
+    #[ts(as = "f64")]
     pub total_cents: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct Discount {
     pub id: String,
     pub name: String,
     pub kind: String,
+    #[ts(as = "f64")]
     pub value: i64,
     pub is_active: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct StudentDiscount {
     pub id: String,
@@ -92,12 +111,15 @@ pub struct StudentDiscount {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct StudentFee {
     pub id: String,
     pub student_id: String,
     pub term_id: String,
     pub description: String,
+    #[ts(as = "f64")]
     pub amount_cents: i64,
     pub discountable: bool,
     pub status: String,
@@ -105,6 +127,8 @@ pub struct StudentFee {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct Invoice {
     pub id: String,
@@ -116,19 +140,26 @@ pub struct Invoice {
     pub issue_date: String,
     pub due_date: String,
     pub status: String,
+    #[ts(as = "f64")]
     pub subtotal_cents: i64,
+    #[ts(as = "f64")]
     pub discount_cents: i64,
+    #[ts(as = "f64")]
     pub total_cents: i64,
+    #[ts(as = "f64")]
     pub paid_cents: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct InvoiceItem {
     pub id: String,
     pub invoice_id: String,
     pub kind: String,
     pub description: String,
+    #[ts(as = "f64")]
     pub amount_cents: i64,
     pub discountable: bool,
     pub discount_id: Option<String>,
@@ -136,11 +167,14 @@ pub struct InvoiceItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct Payment {
     pub id: String,
     pub receipt_number: String,
     pub student_id: String,
+    #[ts(as = "f64")]
     pub amount_cents: i64,
     pub payment_date: String,
     pub payment_method: String,
@@ -150,10 +184,13 @@ pub struct Payment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 #[ts(export)]
 pub struct PaymentAllocation {
     pub id: String,
     pub payment_id: String,
     pub invoice_id: String,
+    #[ts(as = "f64")]
     pub amount_cents: i64,
 }

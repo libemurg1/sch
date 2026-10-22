@@ -1,6 +1,3 @@
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-
 -- USERS (real accounts, attribution only, full access for all)
 CREATE TABLE users (
   id            TEXT PRIMARY KEY,

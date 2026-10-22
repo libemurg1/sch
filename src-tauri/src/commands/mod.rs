@@ -1,8 +1,8 @@
-pub mod students;
+pub mod billing;
+pub mod discounts;
 pub mod enrollment;
 pub mod fee_structures;
-pub mod billing;
 pub mod payments;
-pub mod statements;
 pub mod setup;
-pub mod discounts;
+pub mod statements;
+pub mod students;

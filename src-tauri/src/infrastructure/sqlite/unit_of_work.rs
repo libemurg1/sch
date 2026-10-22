@@ -1,40 +1,23 @@
-use std::sync::{Arc, Mutex};
+use crate::domain::errors::AppResult;
 use rusqlite::Connection;
-use crate::domain::errors::AppError;
 
+/// Runs a unit of work against the shared database connection.
+///
+/// Implemented for [`crate::infrastructure::db::Db`]. The closure receives the
+/// connection directly, so repositories called inside it reuse the open
+/// transaction instead of opening a second connection or re-acquiring the
+/// lock.
 pub trait UnitOfWork {
-    fn execute<T, F>(&self, f: F) -> Result<T, AppError>
+    fn execute<T, F>(&self, f: F) -> AppResult<T>
     where
-        F: FnOnce(&Connection) -> Result<T, AppError>;
+        F: FnOnce(&Connection) -> AppResult<T>;
 }
 
-pub struct SqliteUnitOfWork {
-    conn: Arc<Mutex<Connection>>,
-}
-
-impl SqliteUnitOfWork {
-    pub fn new(conn: Arc<Mutex<Connection>>) -> Self {
-        Self { conn }
-    }
-}
-
-impl UnitOfWork for SqliteUnitOfWork {
-    fn execute<T, F>(&self, f: F) -> Result<T, AppError>
+impl UnitOfWork for crate::infrastructure::db::Db {
+    fn execute<T, F>(&self, f: F) -> AppResult<T>
     where
-        F: FnOnce(&Connection) -> Result<T, AppError>,
+        F: FnOnce(&Connection) -> AppResult<T>,
     {
-        let conn = self.conn.lock().unwrap();
-        conn.execute_batch("BEGIN IMMEDIATE;")?;
-        let result = f(&conn);
-        match result {
-            Ok(val) => {
-                conn.execute_batch("COMMIT;")?;
-                Ok(val)
-            }
-            Err(e) => {
-                let _ = conn.execute_batch("ROLLBACK;");
-                Err(e)
-            }
-        }
+        self.transaction(f)
     }
 }

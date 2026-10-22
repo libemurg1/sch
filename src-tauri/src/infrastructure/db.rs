@@ -1,71 +1,254 @@
-use crate::domain::errors::AppError;
+use crate::domain::errors::{AppError, AppResult};
+use crate::infrastructure::backup;
 use rusqlite::Connection;
 use std::fs;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 
-pub struct DbState {
-    pub conn: Arc<Mutex<Connection>>,
+include!(concat!(env!("OUT_DIR"), "/migrations_gen.rs"));
+
+/// Owns the single SQLite connection used by the application.
+///
+/// The connection lives behind a mutex because `rusqlite::Connection` is `Send`
+/// but not `Sync`. Repositories never hold the lock themselves - they borrow a
+/// `&Connection` handed to them by [`Db::with_conn`] or [`Db::transaction`].
+/// This is what makes nesting safe: a repository called from inside a
+/// transaction reuses the transaction's connection instead of trying to lock
+/// it again.
+pub struct Db {
+    conn: Mutex<Connection>,
 }
 
-impl DbState {
-    pub fn new(app_dir: &PathBuf) -> Result<Self, AppError> {
+impl Db {
+    /// Opens (creating if needed) the database inside `app_dir`, backing it up
+    /// if migrations are pending and then applying any outstanding migrations.
+    pub fn open(app_dir: &Path) -> AppResult<Self> {
         fs::create_dir_all(app_dir)?;
         let db_path = app_dir.join("school.db");
-        
-        // Backup before any migration if db exists
-        if db_path.exists() {
-            let backup_path = app_dir.join(format!(
-                "school_backup_{}.db",
-                chrono::Utc::now().format("%Y%m%d_%H%M%S")
-            ));
-            fs::copy(&db_path, &backup_path)?;
-        }
-        
+
         let conn = Connection::open(&db_path)?;
-        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")?;
-        
-        let db_state = DbState {
-            conn: Arc::new(Mutex::new(conn)),
-        };
-        
-        db_state.run_migrations()?;
-        Ok(db_state)
+        configure_connection(&conn)?;
+
+        let current_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let known_version = MIGRATIONS.len() as i32;
+
+        if current_version > known_version {
+            return Err(AppError::new(
+                "DB_TOO_NEW",
+                format!(
+                    "Database schema version {} is newer than this build understands ({}). \
+                     Update the application or restore a backup.",
+                    current_version, known_version
+                ),
+            ));
+        }
+
+        if current_version < known_version {
+            backup::backup_database(&conn, app_dir)?;
+        }
+
+        apply_migrations(&conn)?;
+
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
-    
-    fn run_migrations(&self) -> Result<(), AppError> {
-        let conn = self.conn.lock().unwrap();
-        let user_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
-        
-        let mut migrations_dir = std::env::current_dir()?;
-        migrations_dir.push("migrations");
-        
-        // Also try src-tauri/migrations
-        if !migrations_dir.exists() {
-            migrations_dir = std::env::current_dir()?;
-            migrations_dir.push("src-tauri");
-            migrations_dir.push("migrations");
+
+    /// Runs `f` with the shared connection outside of any transaction.
+    pub fn with_conn<T>(&self, f: impl FnOnce(&Connection) -> AppResult<T>) -> AppResult<T> {
+        let conn = self.lock()?;
+        f(&conn)
+    }
+
+    /// Runs `f` inside a single `BEGIN IMMEDIATE` transaction. The transaction
+    /// is committed when `f` returns `Ok` and rolled back on `Err`.
+    pub fn transaction<T>(&self, f: impl FnOnce(&Connection) -> AppResult<T>) -> AppResult<T> {
+        let conn = self.lock()?;
+        conn.execute_batch("BEGIN IMMEDIATE;")?;
+        match f(&conn) {
+            Ok(value) => {
+                conn.execute_batch("COMMIT;")?;
+                Ok(value)
+            }
+            Err(error) => {
+                let _ = conn.execute_batch("ROLLBACK;");
+                Err(error)
+            }
         }
-        
-        if !migrations_dir.exists() {
-            return Ok(());
-        }
-        
-        let mut entries: Vec<_> = fs::read_dir(&migrations_dir)?
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("sql"))
-            .collect();
-        entries.sort_by_key(|e| e.file_name());
-        
-        let mut applied = user_version;
-        for entry in entries {
-            let version = applied + 1;
-            let sql = fs::read_to_string(entry.path())?;
-            conn.execute_batch(&sql)?;
-            conn.execute(&format!("PRAGMA user_version = {}", version), [])?;
-            applied = version;
-        }
-        
+    }
+
+    fn lock(&self) -> AppResult<MutexGuard<'_, Connection>> {
+        self.conn
+            .lock()
+            .map_err(|_| AppError::new("DB_POISONED", "The database lock was poisoned by a panic"))
+    }
+
+    /// Creates a consistent copy of the database using SQLite's online backup
+    /// API and returns the path of the backup file.
+    pub fn backup(&self, app_dir: &Path) -> AppResult<PathBuf> {
+        let conn = self.lock()?;
+        backup::backup_database(&conn, app_dir)
+    }
+
+    /// Restores the database from `backup_path`.
+    ///
+    /// The backup is copied into the open connection and any migrations the
+    /// restored file is missing are applied afterwards, so a backup taken by an
+    /// older build can still be restored.
+    pub fn restore_from_backup(&self, backup_path: &Path) -> AppResult<()> {
+        let mut conn = self.lock()?;
+        backup::restore_database(&mut conn, backup_path)?;
+        apply_migrations(&conn)?;
         Ok(())
+    }
+}
+
+/// Applies `f` in a transaction, but only when the connection is not already
+/// inside one. Nested calls therefore join the outer transaction instead of
+/// failing with "cannot start a transaction within a transaction".
+pub fn with_optional_transaction<T>(
+    conn: &Connection,
+    f: impl FnOnce() -> AppResult<T>,
+) -> AppResult<T> {
+    if !conn.is_autocommit() {
+        return f();
+    }
+
+    conn.execute_batch("BEGIN IMMEDIATE;")?;
+    match f() {
+        Ok(value) => {
+            conn.execute_batch("COMMIT;")?;
+            Ok(value)
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            Err(error)
+        }
+    }
+}
+
+fn configure_connection(conn: &Connection) -> AppResult<()> {
+    // `PRAGMA journal_mode` and `PRAGMA busy_timeout` return a row, so they
+    // cannot be issued through `execute_batch`.
+    let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
+    let _: i64 = conn.query_row("PRAGMA busy_timeout = 5000", [], |row| row.get(0))?;
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    Ok(())
+}
+
+fn apply_migrations(conn: &Connection) -> AppResult<()> {
+    let current_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+
+    for (index, (name, sql)) in MIGRATIONS.iter().enumerate() {
+        let version = (index + 1) as i32;
+        if version <= current_version {
+            continue;
+        }
+
+        conn.execute_batch("BEGIN IMMEDIATE;")?;
+        let applied = conn.execute_batch(sql).and_then(|_| {
+            conn.pragma_update(None, "user_version", version)?;
+            conn.execute_batch("COMMIT;")
+        });
+
+        if let Err(error) = applied {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(AppError::new(
+                "MIGRATION_FAILED",
+                format!("Migration {} failed: {}", name, error),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("sfs-test-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn migrations_are_applied_once_and_survive_reopen() {
+        let dir = temp_dir("migrations");
+
+        {
+            let db = Db::open(&dir).unwrap();
+            let version: i32 = db
+                .with_conn(|conn| Ok(conn.query_row("PRAGMA user_version", [], |r| r.get(0))?))
+                .unwrap();
+            assert_eq!(version, MIGRATIONS.len() as i32);
+        }
+
+        // Re-opening must not re-apply migrations (this used to fail with
+        // "table students already exists").
+        {
+            let db = Db::open(&dir).unwrap();
+            let tables: i64 = db
+                .with_conn(|conn| {
+                    Ok(conn.query_row(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'students'",
+                        [],
+                        |r| r.get(0),
+                    )?)
+                })
+                .unwrap();
+            assert_eq!(tables, 1);
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn transaction_rolls_back_on_error() {
+        let dir = temp_dir("rollback");
+        let db = Db::open(&dir).unwrap();
+
+        let result: AppResult<()> = db.transaction(|conn| {
+            conn.execute(
+                "INSERT INTO classes (id, name, grade_level, capacity) VALUES ('c1', 'Grade 1', 1, 30)",
+                [],
+            )?;
+            Err(AppError::new("BOOM", "forced failure"))
+        });
+        assert!(result.is_err());
+
+        let count: i64 = db
+            .with_conn(|conn| {
+                Ok(conn.query_row("SELECT COUNT(*) FROM classes", [], |r| r.get(0))?)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn transaction_commits_on_success() {
+        let dir = temp_dir("commit");
+        let db = Db::open(&dir).unwrap();
+
+        db.transaction(|conn| {
+            Ok(conn.execute(
+                "INSERT INTO classes (id, name, grade_level, capacity) VALUES ('c1', 'Grade 1', 1, 30)",
+                [],
+            )?)
+        })
+        .unwrap();
+
+        let count: i64 = db
+            .with_conn(|conn| {
+                Ok(conn.query_row("SELECT COUNT(*) FROM classes", [], |r| r.get(0))?)
+            })
+            .unwrap();
+        assert_eq!(count, 1);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

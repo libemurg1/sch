@@ -1,38 +1,41 @@
-use crate::domain::errors::AppError;
-use rusqlite::Connection;
-use std::sync::{Arc, Mutex};
+use crate::domain::errors::AppResult;
+use rusqlite::{params, Connection};
 
-pub struct NumberGenerator {
-    conn: Arc<Mutex<Connection>>,
+/// Issues human-readable document numbers (`STU-2026-0001`, `INV-2026-003`,
+/// `REC-2026-0004`) from the `number_counters` table.
+///
+/// The generator borrows the caller's connection, so when it is created
+/// inside a transaction the counter increment joins that transaction.
+pub struct NumberGenerator<'c> {
+    conn: &'c Connection,
 }
 
-impl NumberGenerator {
-    pub fn new(conn: Arc<Mutex<Connection>>) -> Self {
+impl<'c> NumberGenerator<'c> {
+    pub fn new(conn: &'c Connection) -> Self {
         Self { conn }
     }
-    
-    pub fn next(&self, key: &str) -> Result<String, AppError> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+
+    /// Increments the counter for `key` and returns the new value.
+    pub fn next(&self, key: &str) -> AppResult<i64> {
+        self.conn.execute(
             "INSERT OR IGNORE INTO number_counters (key, last_value) VALUES (?, 0)",
-            [key],
+            params![key],
         )?;
-        conn.execute(
+        self.conn.execute(
             "UPDATE number_counters SET last_value = last_value + 1 WHERE key = ?",
-            [key],
+            params![key],
         )?;
-        let last: i64 = conn.query_row(
+        let last: i64 = self.conn.query_row(
             "SELECT last_value FROM number_counters WHERE key = ?",
-            [key],
+            params![key],
             |row| row.get(0),
         )?;
-        Ok(last.to_string())
+        Ok(last)
     }
-    
-    pub fn next_formatted(&self, prefix: &str, year: i32, width: usize) -> Result<String, AppError> {
-        let key = format!("{}-{}", prefix, year);
-        let seq = self.next(&key)?;
-        let seq_num: i64 = seq.parse().unwrap_or(0);
-        Ok(format!("{}-{}-{:0width$}", prefix, year, seq_num, width = width))
+
+    /// Increments the counter for `prefix`-`year` and formats the value.
+    pub fn next_formatted(&self, prefix: &str, year: i32, width: usize) -> AppResult<String> {
+        let sequence = self.next(&format!("{}-{}", prefix, year))?;
+        Ok(format!("{}-{}-{:0width$}", prefix, year, sequence, width = width))
     }
 }

@@ -1,43 +1,87 @@
-use crate::domain::entities::*;
-use crate::domain::errors::AppResult;
-use crate::domain::ports::*;
+use crate::application::{current_year, now_iso};
+use crate::domain::dto::RegisterStudentInput;
+use crate::domain::entities::Student;
+use crate::domain::errors::{AppError, AppResult};
+use crate::domain::ports::StudentRepository;
+use crate::infrastructure::db::Db;
+use crate::infrastructure::sqlite::number_generator::NumberGenerator;
+use crate::infrastructure::sqlite::student_repository::SqliteStudentRepository;
+use crate::infrastructure::sqlite::unit_of_work::UnitOfWork;
 use uuid::Uuid;
 
-pub struct StudentService {
-    students: std::sync::Arc<dyn StudentRepository>,
-    numbers: std::sync::Arc<crate::infrastructure::sqlite::number_generator::NumberGenerator>,
-}
+/// Use cases for registering and listing students.
+pub struct StudentService;
 
 impl StudentService {
-    pub fn new(students: std::sync::Arc<dyn StudentRepository>, numbers: std::sync::Arc<crate::infrastructure::sqlite::number_generator::NumberGenerator>) -> Self {
-        Self { students, numbers }
-    }
-    
-    pub fn register(&self, first_name: String, last_name: String, dob: String, gender: Option<String>, admission_date: String, guardian_name: Option<String>, guardian_phone: Option<String>, guardian_email: Option<String>) -> AppResult<Student> {
-        if first_name.trim().is_empty() || last_name.trim().is_empty() || dob.trim().is_empty() {
-            return Err(crate::domain::errors::AppError { code: "VALIDATION".to_string(), message: "Required fields missing".to_string() });
+    /// Registers a new student, allocating the next `STU-YYYY-NNNN` number.
+    ///
+    /// The number allocation and the insert happen in one transaction so a
+    /// rolled back registration never burns a number.
+    pub fn register(db: &Db, input: RegisterStudentInput) -> AppResult<Student> {
+        if input.first_name.trim().is_empty() {
+            return Err(AppError::validation("First name is required"));
         }
-        let year: i32 = chrono::Utc::now().format("%Y").to_string().parse().unwrap_or(2026);
-        let seq = self.numbers.next_formatted("STU", year, 4)?;
-        let student = Student {
-            id: Uuid::new_v4().to_string(),
-            student_number: seq,
-            first_name,
-            last_name,
-            dob,
-            gender,
-            admission_date,
-            guardian_name,
-            guardian_phone,
-            guardian_email,
-            status: "ACTIVE".to_string(),
-            created_at: chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-        };
-        self.students.create(&student)?;
-        Ok(student)
+        if input.last_name.trim().is_empty() {
+            return Err(AppError::validation("Last name is required"));
+        }
+        if input.dob.trim().is_empty() {
+            return Err(AppError::validation("Date of birth is required"));
+        }
+        if input.admission_date.trim().is_empty() {
+            return Err(AppError::validation("Admission date is required"));
+        }
+
+        db.execute(|conn| {
+            let students = SqliteStudentRepository::new(conn);
+            let numbers = NumberGenerator::new(conn);
+
+            let student_number = numbers.next_formatted("STU", current_year(), 4)?;
+
+            let student = Student {
+                id: Uuid::new_v4().to_string(),
+                student_number,
+                first_name: input.first_name.trim().to_string(),
+                last_name: input.last_name.trim().to_string(),
+                dob: input.dob.trim().to_string(),
+                gender: input.gender,
+                admission_date: input.admission_date.trim().to_string(),
+                guardian_name: input.guardian_name,
+                guardian_phone: input.guardian_phone,
+                guardian_email: input.guardian_email,
+                status: "ACTIVE".to_string(),
+                created_at: now_iso(),
+            };
+
+            students.create(&student)?;
+            Ok(student)
+        })
     }
-    
-    pub fn list(&self) -> AppResult<Vec<Student>> {
-        self.students.list()
+
+    pub fn list(db: &Db) -> AppResult<Vec<Student>> {
+        db.with_conn(|conn| SqliteStudentRepository::new(conn).list())
+    }
+
+    pub fn list_by_status(db: &Db, status: &str) -> AppResult<Vec<Student>> {
+        db.with_conn(|conn| SqliteStudentRepository::new(conn).list_by_status(status))
+    }
+
+    pub fn find(db: &Db, id: &str) -> AppResult<Option<Student>> {
+        db.with_conn(|conn| SqliteStudentRepository::new(conn).find_by_id(id))
+    }
+
+    /// Soft-state change: students are never hard deleted.
+    pub fn update_status(db: &Db, id: &str, status: &str) -> AppResult<()> {
+        const ALLOWED: [&str; 3] = ["ACTIVE", "INACTIVE", "GRADUATED"];
+        if !ALLOWED.contains(&status) {
+            return Err(AppError::validation(format!(
+                "Status must be one of {:?}",
+                ALLOWED
+            )));
+        }
+
+        db.execute(|conn| {
+            let students = SqliteStudentRepository::new(conn);
+            students.update_status(id, status)
+        })
     }
 }

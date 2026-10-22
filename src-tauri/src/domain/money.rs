@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// Money is always stored as an integer number of cents. No floating point is
+/// used for amounts, totals or balances.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Money(i64);
 
@@ -25,11 +27,15 @@ impl Money {
         Money(self.0 - other.0)
     }
 
+    /// Applies a basis-point percentage (`1000` = 10.00%) and rounds half away
+    /// from zero. The intermediate product is computed in 128 bits so large
+    /// amounts cannot overflow.
     pub fn mul_percent(self, basis_points: i64) -> Money {
-        // basis points * cents / 10000, round half up
-        let num = self.0 * basis_points;
-        let result = if num >= 0 { (num + 5000) / 10000 } else { (num - 5000) / 10000 };
-        Money(result)
+        let product = (self.0 as i128) * (basis_points as i128);
+        let magnitude = product.abs() + 5000;
+        let rounded = magnitude / 10000;
+        let signed = if product < 0 { -rounded } else { rounded };
+        Money(signed as i64)
     }
 
     pub fn is_positive(self) -> bool {
@@ -57,11 +63,9 @@ impl Money {
     }
 
     pub fn format(&self) -> String {
-        let sign = if self.0 < 0 { "-" } else { "" };
-        let abs_cents = self.0.abs();
-        let dollars = abs_cents / 100;
-        let cents = abs_cents % 100;
-        format!("{}{}.{:02}", sign, dollars, cents)
+        let sign = if self.is_negative() { "-" } else { "" };
+        let abs_cents = self.abs().cents();
+        format!("{}{}.{:02}", sign, abs_cents / 100, abs_cents % 100)
     }
 }
 
@@ -74,5 +78,31 @@ impl fmt::Display for Money {
 impl Default for Money {
     fn default() -> Self {
         Money::zero()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Money;
+
+    #[test]
+    fn rounds_half_away_from_zero() {
+        assert_eq!(Money::from_cents(1005).mul_percent(5000).cents(), 503);
+        assert_eq!(Money::from_cents(1050).mul_percent(5000).cents(), 525);
+        assert_eq!(Money::from_cents(-1005).mul_percent(5000).cents(), -503);
+    }
+
+    #[test]
+    fn applies_basis_points() {
+        assert_eq!(Money::from_cents(10_000).mul_percent(1000).cents(), 1_000);
+        assert_eq!(Money::from_cents(10_000).mul_percent(10_000).cents(), 10_000);
+        assert_eq!(Money::from_cents(10_000).mul_percent(0).cents(), 0);
+    }
+
+    #[test]
+    fn formats_as_decimal() {
+        assert_eq!(Money::from_cents(123456).format(), "1234.56");
+        assert_eq!(Money::from_cents(5).format(), "0.05");
+        assert_eq!(Money::from_cents(-500).format(), "-5.00");
     }
 }
