@@ -34,6 +34,7 @@ const NAV: NavGroup[] = [
     group: "Money",
     items: [
       { to: "/billing", label: "Billing" },
+      { to: "/invoices", label: "Invoices" },
       { to: "/payments", label: "Payments" },
       { to: "/statements", label: "Statements" },
     ],

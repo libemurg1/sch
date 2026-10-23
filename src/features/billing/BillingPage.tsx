@@ -7,28 +7,21 @@ import {
   useGenerateInvoiceBatch,
   useGenerateSupplementaryInvoice,
   useAssignStudentFee,
-  useInvoices,
   useStudents,
   useTerms,
 } from "../../api/queries"
 import {
   Button,
   Card,
-  EmptyState,
   ErrorBanner,
   Field,
   Input,
-  Loading,
   PageHeader,
   Select,
-  StatusBadge,
-  Table,
-  type Column,
 } from "../../components"
 import { Page } from "../../app/AppShell"
 import { formatDate, formatTermLabel, studentName } from "../../lib/dates"
-import { formatMoney, parseMoneyToCents } from "../../lib/money"
-import type { Invoice } from "../../types/schema/Invoice"
+import { parseMoneyToCents } from "../../lib/money"
 
 export function BillingPage() {
   const classes = useClasses()
@@ -36,7 +29,6 @@ export function BillingPage() {
   const activeTerm = useActiveTerm()
   const appInfo = useAppInfo()
   const students = useStudents()
-  const invoices = useInvoices()
 
   const today = appInfo.data?.today ?? ""
 
@@ -86,62 +78,6 @@ export function BillingPage() {
   const studentNames = new Map(
     (students.data ?? []).map((student) => [student.id, studentName(student)]),
   )
-
-  const invoiceColumns: Column<Invoice>[] = [
-    {
-      key: "number",
-      header: "Invoice",
-      render: (invoice) => (
-        <Link
-          to={`/billing/invoices/${invoice.id}`}
-          className="font-medium text-indigo-600 hover:text-indigo-800"
-        >
-          {invoice.invoiceNumber}
-        </Link>
-      ),
-    },
-    {
-      key: "student",
-      header: "Student",
-      render: (invoice) => studentNames.get(invoice.studentId) ?? "-",
-    },
-    {
-      key: "kind",
-      header: "Kind",
-      render: (invoice) => invoice.kind,
-    },
-    {
-      key: "issued",
-      header: "Issued",
-      hideOnSmall: true,
-      render: (invoice) => formatDate(invoice.issueDate),
-    },
-    {
-      key: "due",
-      header: "Due",
-      hideOnSmall: true,
-      render: (invoice) => formatDate(invoice.dueDate),
-    },
-    {
-      key: "total",
-      header: "Total",
-      align: "right",
-      render: (invoice) => formatMoney(invoice.totalCents),
-    },
-    {
-      key: "balance",
-      header: "Balance",
-      align: "right",
-      render: (invoice) =>
-        formatMoney(invoice.totalCents - invoice.paidCents),
-    },
-    {
-      key: "status",
-      header: "Status",
-      align: "right",
-      render: (invoice) => <StatusBadge status={invoice.status} />,
-    },
-  ]
 
   const runBatch = () => {
     batch.mutate(
@@ -212,6 +148,14 @@ export function BillingPage() {
                 {createdCount === 0
                   ? "Nothing to bill. Every enrolled student already has an invoice for this term."
                   : `${createdCount} invoice${createdCount === 1 ? "" : "s"} created.`}
+                {createdCount > 0 ? (
+                  <>
+                    {" "}
+                    <Link to="/invoices" className="font-semibold underline">
+                      Review invoices
+                    </Link>
+                  </>
+                ) : null}
               </div>
             ) : null}
 
@@ -419,24 +363,6 @@ export function BillingPage() {
         </div>
       </Card>
 
-      <Card title="All invoices">
-        {invoices.isLoading ? (
-          <Loading />
-        ) : invoices.isError ? (
-          <ErrorBanner error={invoices.error} onRetry={() => invoices.refetch()} />
-        ) : (invoices.data ?? []).length === 0 ? (
-          <EmptyState
-            title="No invoices yet"
-            description="Bill a class to raise the first invoices."
-          />
-        ) : (
-          <Table
-            columns={invoiceColumns}
-            rows={invoices.data ?? []}
-            keyOf={(invoice) => invoice.id}
-          />
-        )}
-      </Card>
     </Page>
   )
 }

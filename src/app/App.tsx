@@ -14,6 +14,7 @@ import { TermsPage } from "../features/enrollment/TermsPage"
 import { FeeStructuresPage } from "../features/feeStructures/FeeStructuresPage"
 import { DiscountsPage } from "../features/discounts/DiscountsPage"
 import { BillingPage } from "../features/billing/BillingPage"
+import { InvoicesPage } from "../features/billing/InvoicesPage"
 import { InvoiceDetailPage } from "../features/billing/InvoiceDetailPage"
 import { PaymentsPage } from "../features/payments/PaymentsPage"
 import { StatementsPage } from "../features/statements/StatementsPage"
@@ -41,6 +42,7 @@ export default function App() {
               <Route path="fee-structures" element={<FeeStructuresPage />} />
               <Route path="discounts" element={<DiscountsPage />} />
               <Route path="billing" element={<BillingPage />} />
+              <Route path="invoices" element={<InvoicesPage />} />
               <Route
                 path="billing/invoices/:invoiceId"
                 element={<InvoiceDetailPage />}
