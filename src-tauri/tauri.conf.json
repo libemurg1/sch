@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "SFS",
+  "productName": "Primary School",
   "version": "0.1.0",
-  "identifier": "com.schoolfees.sfs",
+  "identifier": "com.schoolfees.primaryschool",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "SFS System",
+        "title": "Primary School",
         "width": 1200,
         "height": 800,
         "minWidth": 1024,

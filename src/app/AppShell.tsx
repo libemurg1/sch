@@ -23,7 +23,9 @@ const NAV: NavGroup[] = [
     group: "Records",
     items: [
       { to: "/students", label: "Students" },
-      { to: "/enrollment", label: "Classes & Terms" },
+      { to: "/classes", label: "Classes" },
+      { to: "/terms", label: "Terms" },
+      { to: "/enrollment", label: "Enrollment" },
       { to: "/fee-structures", label: "Fee Structures" },
       { to: "/discounts", label: "Discounts" },
     ],
@@ -39,7 +41,7 @@ const NAV: NavGroup[] = [
   {
     group: "System",
     items: [
-      { to: "/settings", label: "School Settings" },
+      { to: "/settings", label: "Settings" },
       { to: "/users", label: "Users" },
       { to: "/maintenance", label: "Maintenance" },
     ],

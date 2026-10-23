@@ -9,6 +9,8 @@ import { DashboardPage } from "../features/dashboard/DashboardPage"
 import { StudentsPage } from "../features/students/StudentsPage"
 import { StudentDetailPage } from "../features/students/StudentDetailPage"
 import { EnrollmentPage } from "../features/enrollment/EnrollmentPage"
+import { ClassesPage } from "../features/enrollment/ClassesPage"
+import { TermsPage } from "../features/enrollment/TermsPage"
 import { FeeStructuresPage } from "../features/feeStructures/FeeStructuresPage"
 import { DiscountsPage } from "../features/discounts/DiscountsPage"
 import { BillingPage } from "../features/billing/BillingPage"
@@ -33,6 +35,8 @@ export default function App() {
               <Route index element={<DashboardPage />} />
               <Route path="students" element={<StudentsPage />} />
               <Route path="students/:studentId" element={<StudentDetailPage />} />
+              <Route path="classes" element={<ClassesPage />} />
+              <Route path="terms" element={<TermsPage />} />
               <Route path="enrollment" element={<EnrollmentPage />} />
               <Route path="fee-structures" element={<FeeStructuresPage />} />
               <Route path="discounts" element={<DiscountsPage />} />

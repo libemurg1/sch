@@ -1,85 +1,215 @@
-# School Fees System (SFS)
+# School Fees System
 
-Offline-first desktop app for registering students, setting term fees, batch billing a class, recording payments, printing receipts/statements. Built with Tauri v2 + React + TypeScript + Rust + SQLite.
+A Tauri-based desktop application for managing school fees, student records, class enrollments, invoices, discounts, and payments in a local-first offline environment.
+
+## Overview
+
+This project combines a React + TypeScript frontend with a Rust backend and SQLite database to provide a school finance workflow for:
+
+- registering and managing students
+- setting up academic classes and terms
+- defining fee structures
+- generating term and supplementary invoices
+- recording student payments and allocations
+- applying discounts and viewing statements
+- printing receipts, invoices, and account statements
+
+The app is designed to run locally on a desktop machine and keep sensitive financial data on-device.
 
 ## Tech Stack
-- **Frontend**: React 19 + TypeScript + Vite + TailwindCSS + Zod + TanStack Query
-- **Backend**: Rust + Tauri v2 + rusqlite (bundled) with WAL
-- **Database**: SQLite (single file `school.db`), all business rules in Rust transactions
-- **Printing/PDF**: Webview HTML print + @media print (A4/Letter for invoices/statements, 80mm receipt)
 
-## Core Principles
-- **Money as integer cents** (i64) — no floating point for totals/balances
-- **All access via Tauri commands only** — no SQL plugin from React
-- **Snapshot invoices** — invoice items copied at billing time; fee changes never rewrite issued invoices
-- **Soft state only** — no hard delete of financial rows (use CANCELLED/INACTIVE)
-- **UUIDs for rows, human numbers** — STU-YYYY-0001, INV-YYYY-0003, REC-YYYY-0004 from counters
-- **Business rules in transactions** — batch billing and payments are atomic
-- **One invoice per student per term** — a student is enrolled in one class per term and is invoiced once for it
-- **Multi-invoice payments** — one payment can cover multiple invoices via PAYMENT_ALLOCATIONS
-- **Discounts** — both FIXED (cents) and PERCENT (basis points, 1-10000), stackable, targeted to specific fee items or whole invoice, each saved as negative line
-- **Supplementary invoices** — late fees create SUPPLEMENTARY invoices; fixed discounts not re-applied in same term to late fees
-- **Real accounts, attribution only** — login required, full access for all, stamps audit trail and receipts
+- Frontend: React 19, TypeScript, Vite, TailwindCSS
+- State/data access: TanStack Query, Zod, Tauri invoke commands
+- Backend: Rust, Tauri v2
+- Database: SQLite via rusqlite with bundled migration support
+- Printing: browser print dialog / HTML print layout
 
 ## Project Structure
-```
-school-fees/
-├─ src/                          # React + TypeScript frontend
-│  ├─ app/                       # router, providers, layout shell
-│  ├─ features/                  # students, enrollment, fee-structures, billing, payments, statements
-│  ├─ components/                # shared UI only
-│  ├─ api/                       # invoke() client, error mapping
-│  ├─ reports/                   # StatementDocument, InvoiceDocument, ReceiptDocument
-│  ├─ lib/                       # money.ts, dates.ts, validation (zod)
-│  └─ types/schema/              # generated from Rust by ts-rs
+
+```text
+.
+├─ src/
+│  ├─ api/                  # Tauri command wrappers and client helpers
+│  ├─ app/                  # app shell, session, providers, routing
+│  ├─ components/           # shared UI components
+│  ├─ features/             # feature modules (auth, billing, payments, students, etc.)
+│  ├─ lib/                  # utility helpers, money/date logic
+│  ├─ reports/              # invoice/receipt/statement print documents
+│  ├─ types/                # TypeScript types and schema outputs
+│  ├─ index.css             # global styling
+│  └─ main.tsx              # app bootstrap
 ├─ src-tauri/
-│  ├─ migrations/                # 0001_init.sql, ...
-│  └─ src/
-│     ├─ main.rs                 # composition root, DI wiring
-│     ├─ commands/               # Tauri command handlers
-│     ├─ application/            # services (use cases)
-│     ├─ domain/                 # entities, Money, errors, ports
-│     └─ infrastructure/         # sqlite repos, unit_of_work, backup, number_generator
-└─ docs/                         # design docs, ADRs
+│  ├─ bindings/             # generated TypeScript interfaces from Rust
+│  ├─ capabilities/         # Tauri capability configuration
+│  ├─ migrations/           # SQL migration files
+│  ├─ src/
+│  │  ├─ application/       # service layer/use cases
+│  │  ├─ commands/          # Tauri command handlers
+│  │  ├─ domain/            # entities, rules, errors, auth, money logic
+│  │  ├─ infrastructure/    # DB access, repositories, utilities
+│  │  └─ main.rs            # app bootstrap and command registration
+│  ├─ Cargo.toml            # Rust project configuration
+│  └─ tauri.conf.json       # Tauri app config
+├─ index.html
+├─ package.json
+├─ tailwind.config.js
+├─ postcss.config.js
+├─ tsconfig.json
+├─ vite.config.ts
+└─ README.md
 ```
 
-## Discount Rules
-- PERCENT value in basis points (e.g., 1000 = 10.00%), max 10000 (100%)
-- FIXED value in cents
-- Apply to discountable base only (items with discountable=1)
-- Multiple percentages add together (not compounded), each rounded half up, capped at 100% of discountable base
-- Fixed discounts come off whole invoice
-- All discounts stack, no per-discount cap (only final clamp so invoice never below zero) — total discount capped at subtotal
-- Each discount saved as separate negative INVOICE_ITEM (kind=DISCOUNT)
-- Targeted: STUDENT_DISCOUNTS.target_student_fee_id or target_fee_item_id (nullable = whole invoice)
-- Late discount: add negative line to existing invoice if new total >= paid_cents
-- Fixed discounts not re-applied to supplementary invoices for same term (only percentage discounts apply to discountable lines of supplementary)
+## Prerequisites
 
-## Payment Rules
-- One payment can cover multiple invoices via PAYMENT_ALLOCATIONS
-- Payment belongs to student; allocations split amount across invoices
-- Overpayment impossible (CHECK paid_cents <= total_cents)
-- Invoice status derived: UNPAID (paid=0), PARTIAL (0<payed<total), PAID (paid==total), CANCELLED
-- Same reference not reused for same method (except CASH)
+Before running the app, install:
 
-## Billing Rules
-- Batch billing: for each enrolled student in class+term, create TERM invoice from FEE_STRUCTURE (snapshot items)
-- One live TERM invoice per student per term (partial unique index)
-- A student belongs to one class per term (`UNIQUE (student_id, term_id)` on enrollments), so a term produces exactly one TERM invoice per student
-- Late student fee added after billing → create SUPPLEMENTARY invoice with pending fees
-- Supplementary invoices have fee_structure_id=NULL, kind=SUPPLEMENTARY
-- Each discount as negative line
+- Node.js 18+ or 20+ (LTS recommended)
+- Rust toolchain via `rustup`
+- Tauri prerequisites for your OS
+  - Windows: Visual Studio 2022 Build Tools + WebView2 runtime
 
-## Numbering
-- Students: STU-{year}-{seq:04}
-- Invoices: INV-{year}-{seq:03}
-- Receipts: REC-{year}-{seq:04}
-- Generated inside transaction via NUMBER_COUNTERS
+## Getting Started
 
-## Printing
-- Invoice/Statement: A4/Letter via webview print, CSS @media print
-- Receipt: 80mm thermal slip via webview print with 80mm stylesheet
-- PDF export via "Save as PDF" in webview
+Install dependencies:
 
-## Database
-All migrations in `src-tauri/migrations/` applied at startup with PRAGMA user_version. Backup created before any migration. App refuses to start if DB is newer than understood.
+```bash
+npm install
+```
+
+Start the app in development mode:
+
+```bash
+npm run tauri dev
+```
+
+For a frontend-only build check:
+
+```bash
+npm run build
+```
+
+To create a production desktop build:
+
+```bash
+npm run tauri build
+```
+
+## Building a Windows Installer (.exe or .msi)
+
+This project is configured as a Tauri desktop app, so the normal production build can be packaged into Windows installer artifacts.
+
+### Prerequisites for Windows packaging
+
+Install the following before generating an installer:
+
+- Node.js and npm
+- Rust toolchain
+- Visual Studio 2022 Build Tools with:
+  - Desktop development with C++
+  - MSVC toolchain
+- WebView2 runtime
+
+### Generate the installer
+
+From the project root:
+
+```bash
+npm run tauri build
+```
+
+This creates the bundled release output in the Tauri target folder, typically under:
+
+```text
+src-tauri/target/release/bundle/
+```
+
+Depending on the build environment and configuration, you will usually find:
+
+- Windows installer executable: `.exe`
+- Windows MSI installer: `.msi`
+
+### Use a single target only
+
+If you want only one installer type instead of all default outputs, set the bundle target explicitly in `src-tauri/tauri.conf.json`:
+
+```json
+"bundle": {
+  "active": true,
+  "targets": ["nsis", "msi"]
+}
+```
+
+or:
+
+```json
+"bundle": {
+  "active": true,
+  "targets": "nsis"
+}
+```
+
+Then run:
+
+```bash
+npm run tauri build
+```
+
+### Common output locations
+
+Typical Windows output locations are:
+
+```text
+src-tauri/target/release/bundle/nsis/
+src-tauri/target/release/bundle/msi/
+```
+
+- `nsis` usually contains a `.exe` installer
+- `msi` usually contains a `.msi` installer
+
+### Installing the generated app
+
+After the build completes:
+
+1. Open the generated installer in the relevant bundle folder.
+2. Follow the setup wizard.
+3. Install the app on the target Windows machine.
+
+### For distribution
+
+For professional deployment, a signed installer is recommended for enterprise distribution. You can sign the generated `.exe` or `.msi` payload with a trusted code-signing certificate before shipping it to users.
+
+## Typical Workflow
+
+1. Create users and configure school settings.
+2. Add classes and academic terms.
+3. Register students and enroll them into classes.
+4. Define fee structures and assign fees.
+5. Generate term invoices or supplemental invoices.
+6. Record payments and allocate them against invoices.
+7. Print receipts, statements, or invoice documents as needed.
+
+## Business Rules
+
+The application is built around a few important financial rules:
+
+- Money is handled in integer cents instead of floating point values.
+- Invoices are generated from the fee structure snapshot at the time of billing.
+- Payment allocations can be split across multiple invoices.
+- Discounts may be fixed or percentage-based and are applied according to business logic in the backend.
+- The database enforces local, transactional behavior for financial operations.
+- Printing uses app-generated HTML layouts for structured documents.
+
+## Database and Local Storage
+
+The app stores data in a local SQLite database managed by the Rust backend. The database is initialized and migrated through SQL files in the `src-tauri/migrations` folder.
+
+## Notes
+
+- The app is intended for local/offline use, not a multi-user web deployment.
+- Most financial operations are implemented in the Rust backend to keep business logic centralized and consistent.
+- The frontend acts as a desktop UI layer over Tauri commands and the local database.
+
+## License
+
+This project does not currently declare a license in the repository. If you plan to distribute or reuse it, add an explicit license before publishing.
+
