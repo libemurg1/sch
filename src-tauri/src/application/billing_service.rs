@@ -1,3 +1,4 @@
+use crate::application::credit_service::CreditService;
 use crate::application::discount_calculator::{self, ChargeLine};
 use crate::application::current_year;
 use crate::domain::dto::{AssignStudentFeeInput, GenerateBatchInput, GenerateSupplementaryInput};
@@ -155,6 +156,9 @@ impl BillingService {
                 invoices.create(&invoice)?;
                 invoices.create_items(&invoice.id, &items)?;
 
+                // Credit already paid into the account clears this new invoice.
+                CreditService::apply_conn(conn, &invoice.student_id)?;
+
                 created.push(invoice);
             }
 
@@ -272,6 +276,9 @@ impl BillingService {
             for fee in &pending {
                 student_fees.mark_billed(&fee.id, &invoice.id)?;
             }
+
+            // Credit already paid into the account clears this new invoice.
+            CreditService::apply_conn(conn, &invoice.student_id)?;
 
             Ok(Some(invoice))
         })

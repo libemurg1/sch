@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "School Fees System",
+  "productName": "SFS",
   "version": "0.1.0",
   "identifier": "com.schoolfees.sfs",
   "build": {
@@ -13,13 +13,14 @@
     "windows": [
       {
         "label": "main",
-        "title": "School Fees System",
+        "title": "SFS System",
         "width": 1200,
         "height": 800,
         "minWidth": 1024,
         "minHeight": 640,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "maximized": true
       }
     ],
     "security": {

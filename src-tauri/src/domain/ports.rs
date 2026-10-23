@@ -1,3 +1,4 @@
+use crate::domain::auth::{SchoolSettings, User};
 use crate::domain::entities::{
     Class, Discount, Enrollment, FeeItem, FeeStructure, Invoice, InvoiceItem, Payment,
     PaymentAllocation, Student, StudentDiscount, StudentFee, Term,
@@ -18,14 +19,26 @@ pub trait StudentRepository {
 pub trait ClassRepository {
     fn list(&self) -> AppResult<Vec<Class>>;
     fn find_by_id(&self, id: &str) -> AppResult<Option<Class>>;
+    fn find_by_name(&self, name: &str) -> AppResult<Option<Class>>;
     fn create(&self, class: &Class) -> AppResult<()>;
+    fn update(&self, class: &Class) -> AppResult<()>;
+    fn delete(&self, id: &str) -> AppResult<()>;
+    /// Number of records (enrollments, fee structures, invoices) using this class.
+    fn reference_count(&self, id: &str) -> AppResult<i64>;
 }
 
 pub trait TermRepository {
     fn list(&self) -> AppResult<Vec<Term>>;
     fn find_by_id(&self, id: &str) -> AppResult<Option<Term>>;
+    fn find_by_year_term(&self, year: i32, term_number: i32) -> AppResult<Option<Term>>;
     fn get_active(&self) -> AppResult<Option<Term>>;
     fn create(&self, term: &Term) -> AppResult<()>;
+    fn update(&self, term: &Term) -> AppResult<()>;
+    fn delete(&self, id: &str) -> AppResult<()>;
+    /// Clears the active flag everywhere except `id`.
+    fn deactivate_others(&self, id: &str) -> AppResult<()>;
+    /// Number of records (enrollments, fees, invoices, discounts) using this term.
+    fn reference_count(&self, id: &str) -> AppResult<i64>;
 }
 
 pub trait EnrollmentRepository {
@@ -72,11 +85,23 @@ pub trait InvoiceRepository {
     fn apply_payment(&self, invoice_id: &str, amount_cents: i64) -> AppResult<Invoice>;
 }
 
+/// Money that has been received but not yet applied to an invoice.
+#[derive(Debug, Clone)]
+pub struct CreditSource {
+    pub payment_id: String,
+    pub remaining_cents: i64,
+}
+
 pub trait PaymentRepository {
     fn create(&self, payment: &Payment, allocations: &[PaymentAllocation]) -> AppResult<()>;
     fn find_by_id(&self, id: &str) -> AppResult<Option<Payment>>;
+    fn list(&self) -> AppResult<Vec<Payment>>;
     fn list_by_student(&self, student_id: &str) -> AppResult<Vec<Payment>>;
     fn list_allocations(&self, payment_id: &str) -> AppResult<Vec<PaymentAllocation>>;
+    /// Adds a single allocation to an existing payment.
+    fn add_allocation(&self, allocation: &PaymentAllocation) -> AppResult<()>;
+    /// Unallocated payments for a student, oldest first.
+    fn credit_sources(&self, student_id: &str) -> AppResult<Vec<CreditSource>>;
 }
 
 pub trait StudentFeeRepository {
@@ -90,4 +115,24 @@ pub trait DiscountRepository {
     fn list_for_student(&self, student_id: &str, term_id: &str) -> AppResult<Vec<StudentDiscount>>;
     fn create(&self, discount: &Discount) -> AppResult<()>;
     fn assign(&self, student_discount: &StudentDiscount) -> AppResult<()>;
+}
+
+pub trait UserRepository {
+    fn create(&self, user: &User, password_hash: &str) -> AppResult<()>;
+    fn find_by_username(&self, username: &str) -> AppResult<Option<User>>;
+    fn find_by_id(&self, user_id: &str) -> AppResult<Option<User>>;
+    fn password_hash(&self, user_id: &str) -> AppResult<Option<String>>;
+    fn list(&self) -> AppResult<Vec<User>>;
+    fn count(&self) -> AppResult<i64>;
+    fn update_password(&self, user_id: &str, password_hash: &str) -> AppResult<()>;
+    fn update_profile(&self, user_id: &str, username: &str, display_name: &str) -> AppResult<()>;
+    fn set_active(&self, user_id: &str, is_active: bool) -> AppResult<()>;
+    fn record_login(&self, user_id: &str, at: &str) -> AppResult<()>;
+    fn delete(&self, user_id: &str) -> AppResult<()>;
+}
+
+pub trait SettingsRepository {
+    fn get(&self) -> AppResult<SchoolSettings>;
+    fn save(&self, settings: &SchoolSettings) -> AppResult<()>;
+    fn save_logo(&self, logo_data: Option<&str>) -> AppResult<()>;
 }

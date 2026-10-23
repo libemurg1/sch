@@ -20,6 +20,7 @@ fn app_dir(state: &AppState) -> AppResult<PathBuf> {
 /// data is currently stored.
 #[tauri::command]
 pub fn get_app_info(state: State<'_, AppState>) -> AppResult<AppInfo> {
+    let _user = state.require_auth()?;
     let student_count = state.db.with_conn(|conn| {
         Ok(conn.query_row("SELECT COUNT(*) FROM students", [], |row| row.get(0))?)
     })?;
@@ -37,6 +38,7 @@ pub fn get_app_info(state: State<'_, AppState>) -> AppResult<AppInfo> {
 /// Creates a consistent snapshot of the database and returns its path.
 #[tauri::command]
 pub fn backup_database(state: State<'_, AppState>) -> AppResult<String> {
+    let _user = state.require_auth()?;
     let path = state.db.backup(&app_dir(&state)?)?;
     Ok(path.to_string_lossy().into_owned())
 }
@@ -44,6 +46,7 @@ pub fn backup_database(state: State<'_, AppState>) -> AppResult<String> {
 /// Lists the available backups, newest first.
 #[tauri::command]
 pub fn list_backups(state: State<'_, AppState>) -> AppResult<Vec<String>> {
+    let _user = state.require_auth()?;
     let backups = backup::list_backups(&app_dir(&state)?)?;
     Ok(backups
         .into_iter()
@@ -54,5 +57,6 @@ pub fn list_backups(state: State<'_, AppState>) -> AppResult<Vec<String>> {
 /// Restores the database from a backup, replacing the current data.
 #[tauri::command]
 pub fn restore_database(state: State<'_, AppState>, backup_path: String) -> AppResult<()> {
+    let _user = state.require_auth()?;
     state.db.restore_from_backup(&PathBuf::from(backup_path))
 }

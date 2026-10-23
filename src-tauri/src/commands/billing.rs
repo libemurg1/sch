@@ -10,6 +10,7 @@ pub fn generate_invoice_batch(
     state: State<'_, AppState>,
     input: GenerateBatchInput,
 ) -> AppResult<Vec<Invoice>> {
+    let _user = state.require_auth()?;
     BillingService::generate_batch(&state.db, input)
 }
 
@@ -18,6 +19,7 @@ pub fn generate_supplementary_invoice(
     state: State<'_, AppState>,
     input: GenerateSupplementaryInput,
 ) -> AppResult<Option<Invoice>> {
+    let _user = state.require_auth()?;
     BillingService::create_supplementary(&state.db, input)
 }
 
@@ -27,11 +29,13 @@ pub fn assign_student_fee(
     state: State<'_, AppState>,
     input: AssignStudentFeeInput,
 ) -> AppResult<StudentFee> {
+    let _user = state.require_auth()?;
     BillingService::assign_student_fee(&state.db, input)
 }
 
 #[tauri::command]
 pub fn list_invoices(state: State<'_, AppState>) -> AppResult<Vec<Invoice>> {
+    let _user = state.require_auth()?;
     BillingService::list(&state.db)
 }
 
@@ -40,6 +44,7 @@ pub fn list_student_invoices(
     state: State<'_, AppState>,
     student_id: String,
 ) -> AppResult<Vec<Invoice>> {
+    let _user = state.require_auth()?;
     BillingService::list_by_student(&state.db, &student_id)
 }
 
@@ -49,11 +54,13 @@ pub fn list_class_invoices(
     class_id: String,
     term_id: String,
 ) -> AppResult<Vec<Invoice>> {
+    let _user = state.require_auth()?;
     BillingService::list_by_class_term(&state.db, &class_id, &term_id)
 }
 
 #[tauri::command]
 pub fn get_invoice(state: State<'_, AppState>, id: String) -> AppResult<Option<Invoice>> {
+    let _user = state.require_auth()?;
     BillingService::find(&state.db, &id)
 }
 
@@ -62,5 +69,6 @@ pub fn get_invoice_items(
     state: State<'_, AppState>,
     invoice_id: String,
 ) -> AppResult<Vec<InvoiceItem>> {
+    let _user = state.require_auth()?;
     BillingService::list_items(&state.db, &invoice_id)
 }

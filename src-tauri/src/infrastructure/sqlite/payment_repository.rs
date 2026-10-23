@@ -1,6 +1,6 @@
 use crate::domain::entities::{Payment, PaymentAllocation};
 use crate::domain::errors::AppResult;
-use crate::domain::ports::PaymentRepository;
+use crate::domain::ports::{CreditSource, PaymentRepository};
 use crate::infrastructure::db::with_optional_transaction;
 use rusqlite::{params, Connection};
 
@@ -86,6 +86,19 @@ impl PaymentRepository for SqlitePaymentRepository<'_> {
         }
     }
 
+    fn list(&self) -> AppResult<Vec<Payment>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} FROM payments ORDER BY payment_date DESC, created_at DESC",
+            PAYMENT_COLUMNS
+        ))?;
+        let rows = stmt.query_map([], map_payment)?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
     fn list_by_student(&self, student_id: &str) -> AppResult<Vec<Payment>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {} FROM payments WHERE student_id = ? ORDER BY payment_date DESC, created_at DESC",
@@ -105,6 +118,43 @@ impl PaymentRepository for SqlitePaymentRepository<'_> {
              WHERE payment_id = ? ORDER BY id",
         )?;
         let rows = stmt.query_map(params![payment_id], map_allocation)?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    fn add_allocation(&self, allocation: &PaymentAllocation) -> AppResult<()> {
+        self.conn.execute(
+            "INSERT INTO payment_allocations (id, payment_id, invoice_id, amount_cents) \
+             VALUES (?,?,?,?)",
+            params![
+                allocation.id,
+                allocation.payment_id,
+                allocation.invoice_id,
+                allocation.amount_cents,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn credit_sources(&self, student_id: &str) -> AppResult<Vec<CreditSource>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT p.id, p.amount_cents - COALESCE(SUM(a.amount_cents), 0) AS remaining \
+             FROM payments p \
+             LEFT JOIN payment_allocations a ON a.payment_id = p.id \
+             WHERE p.student_id = ? \
+             GROUP BY p.id \
+             HAVING remaining > 0 \
+             ORDER BY p.payment_date ASC, p.created_at ASC, p.id ASC",
+        )?;
+        let rows = stmt.query_map(params![student_id], |row| {
+            Ok(CreditSource {
+                payment_id: row.get(0)?,
+                remaining_cents: row.get(1)?,
+            })
+        })?;
         let mut result = Vec::new();
         for row in rows {
             result.push(row?);

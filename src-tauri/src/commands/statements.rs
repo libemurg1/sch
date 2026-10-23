@@ -1,5 +1,6 @@
 use crate::AppState;
 use crate::application::billing_service::BillingService;
+use crate::application::credit_service::CreditService;
 use crate::application::enrollment_service::EnrollmentService;
 use crate::application::payment_service::PaymentService;
 use crate::application::student_service::StudentService;
@@ -17,6 +18,7 @@ pub fn get_student_statement(
     student_id: String,
     term_id: Option<String>,
 ) -> AppResult<StudentStatement> {
+    let _user = state.require_auth()?;
     let student = StudentService::find(&state.db, &student_id)?
         .ok_or_else(|| AppError::not_found("Student", &student_id))?;
 
@@ -32,6 +34,7 @@ pub fn get_student_statement(
 
     let total_billed_cents: i64 = invoices.iter().map(|invoice| invoice.total_cents).sum();
     let total_paid_cents: i64 = invoices.iter().map(|invoice| invoice.paid_cents).sum();
+    let account = CreditService::summary(&state.db, &student_id)?;
 
     let term: Option<Term> = match &term_id {
         Some(term_id) => state.db.with_conn(|conn| {
@@ -48,7 +51,8 @@ pub fn get_student_statement(
         payments,
         total_billed_cents,
         total_paid_cents,
-        balance_cents: total_billed_cents - total_paid_cents,
+        credit_cents: account.credit_cents,
+        balance_cents: total_billed_cents - total_paid_cents - account.credit_cents,
     })
 }
 
@@ -58,6 +62,7 @@ pub fn get_invoice_detail(
     state: State<'_, AppState>,
     invoice_id: String,
 ) -> AppResult<InvoiceDetail> {
+    let _user = state.require_auth()?;
     let invoice = BillingService::find(&state.db, &invoice_id)?
         .ok_or_else(|| AppError::not_found("Invoice", &invoice_id))?;
     let items = BillingService::list_items(&state.db, &invoice_id)?;

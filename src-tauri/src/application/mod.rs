@@ -1,9 +1,12 @@
+pub mod auth_service;
 pub mod billing_service;
+pub mod credit_service;
 pub mod discount_calculator;
 pub mod discount_service;
 pub mod enrollment_service;
 pub mod fee_structure_service;
 pub mod payment_service;
+pub mod settings_service;
 pub mod student_service;
 
 use chrono::{Datelike, Utc};

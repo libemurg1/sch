@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod dto;
 pub mod entities;
 pub mod errors;

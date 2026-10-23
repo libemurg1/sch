@@ -9,3 +9,5 @@ pub mod invoice_repository;
 pub mod payment_repository;
 pub mod discount_repository;
 pub mod student_fee_repository;
+pub mod user_repository;
+pub mod settings_repository;

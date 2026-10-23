@@ -11,6 +11,8 @@ pub fn get_fee_structure(
     class_id: String,
     term_id: String,
 ) -> AppResult<Option<(FeeStructure, Vec<FeeItem>)>> {
+    let _user = state.require_auth()?;
+    let _user = state.require_auth()?;
     FeeStructureService::get(&state.db, &class_id, &term_id)
 }
 
@@ -19,5 +21,7 @@ pub fn save_fee_structure(
     state: State<'_, AppState>,
     input: SaveFeeStructureInput,
 ) -> AppResult<FeeStructure> {
+    let _user = state.require_auth()?;
+    let _user = state.require_auth()?;
     FeeStructureService::save(&state.db, input)
 }

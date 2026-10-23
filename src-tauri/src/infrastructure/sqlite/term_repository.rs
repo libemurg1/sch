@@ -51,6 +51,18 @@ impl TermRepository for SqliteTermRepository<'_> {
         }
     }
 
+    fn find_by_year_term(&self, year: i32, term_number: i32) -> AppResult<Option<Term>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} FROM terms WHERE year = ? AND term_number = ?",
+            TERM_COLUMNS
+        ))?;
+        let mut rows = stmt.query(params![year, term_number])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(map_term(row)?)),
+            None => Ok(None),
+        }
+    }
+
     fn get_active(&self) -> AppResult<Option<Term>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {} FROM terms WHERE is_active = 1",
@@ -77,5 +89,59 @@ impl TermRepository for SqliteTermRepository<'_> {
             ],
         )?;
         Ok(())
+    }
+
+    fn update(&self, term: &Term) -> AppResult<()> {
+        let changed = self.conn.execute(
+            "UPDATE terms SET year = ?, term_number = ?, start_date = ?, \
+             end_date = ?, is_active = ? WHERE id = ?",
+            params![
+                term.year,
+                term.term_number,
+                term.start_date,
+                term.end_date,
+                i32::from(term.is_active),
+                term.id,
+            ],
+        )?;
+        if changed == 0 {
+            return Err(crate::domain::errors::AppError::not_found(
+                "Term", &term.id,
+            ));
+        }
+        Ok(())
+    }
+
+    fn delete(&self, id: &str) -> AppResult<()> {
+        let changed = self
+            .conn
+            .execute("DELETE FROM terms WHERE id = ?", params![id])?;
+        if changed == 0 {
+            return Err(crate::domain::errors::AppError::not_found(
+                "Term", id,
+            ));
+        }
+        Ok(())
+    }
+
+    fn deactivate_others(&self, id: &str) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE terms SET is_active = 0 WHERE is_active = 1 AND id <> ?",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    fn reference_count(&self, id: &str) -> AppResult<i64> {
+        Ok(self.conn.query_row(
+            "SELECT \
+               (SELECT COUNT(*) FROM enrollments WHERE term_id = ?1) \
+             + (SELECT COUNT(*) FROM fee_structures WHERE term_id = ?1) \
+             + (SELECT COUNT(*) FROM invoices WHERE term_id = ?1) \
+             + (SELECT COUNT(*) FROM student_fees WHERE term_id = ?1) \
+             + (SELECT COUNT(*) FROM student_discounts WHERE term_id = ?1)",
+            params![id],
+            |row| row.get(0),
+        )?)
     }
 }

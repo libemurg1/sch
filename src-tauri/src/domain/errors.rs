@@ -55,3 +55,13 @@ impl From<std::io::Error> for AppError {
         Self::new("IO_ERROR", e.to_string())
     }
 }
+
+impl AppError {
+    pub fn unauthorized() -> Self {
+        Self::new("UNAUTHORIZED", "Not authenticated")
+    }
+
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::new("FORBIDDEN", message)
+    }
+}

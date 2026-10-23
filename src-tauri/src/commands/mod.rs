@@ -1,8 +1,12 @@
+pub mod auth;
 pub mod billing;
 pub mod discounts;
 pub mod enrollment;
 pub mod fee_structures;
 pub mod payments;
+pub mod printing;
+pub mod settings;
 pub mod setup;
 pub mod statements;
 pub mod students;
+pub mod support;

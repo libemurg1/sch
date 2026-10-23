@@ -46,11 +46,65 @@ impl ClassRepository for SqliteClassRepository<'_> {
         }
     }
 
+    fn find_by_name(&self, name: &str) -> AppResult<Option<Class>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, grade_level, capacity FROM classes WHERE name = ?",
+        )?;
+        let mut rows = stmt.query(params![name])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(map_class(row)?)),
+            None => Ok(None),
+        }
+    }
+
     fn create(&self, class: &Class) -> AppResult<()> {
         self.conn.execute(
             "INSERT INTO classes (id, name, grade_level, capacity) VALUES (?,?,?,?)",
             params![class.id, class.name, class.grade_level, class.capacity],
         )?;
         Ok(())
+    }
+
+    fn update(&self, class: &Class) -> AppResult<()> {
+        let changed = self.conn.execute(
+            "UPDATE classes SET name = ?, grade_level = ?, capacity = ? WHERE id = ?",
+            params![
+                class.name,
+                class.grade_level,
+                class.capacity,
+                class.id
+            ],
+        )?;
+        if changed == 0 {
+            return Err(crate::domain::errors::AppError::not_found(
+                "Class", &class.id,
+            ));
+        }
+        Ok(())
+    }
+
+    fn delete(&self, id: &str) -> AppResult<()> {
+        let changed = self
+            .conn
+            .execute("DELETE FROM classes WHERE id = ?", params![id])?;
+        if changed == 0 {
+            return Err(crate::domain::errors::AppError::not_found(
+                "Class", id,
+            ));
+        }
+        Ok(())
+    }
+
+    fn reference_count(&self, id: &str) -> AppResult<i64> {
+        Ok(self.conn.query_row(
+            "SELECT \
+               (SELECT COUNT(*) FROM enrollments WHERE class_id = ?1) \
+             + (SELECT COUNT(*) FROM fee_structures WHERE class_id = ?1) \
+             + (SELECT COUNT(*) FROM invoices i \
+                  JOIN fee_structures fs ON fs.id = i.fee_structure_id \
+                 WHERE fs.class_id = ?1)",
+            params![id],
+            |row| row.get(0),
+        )?)
     }
 }

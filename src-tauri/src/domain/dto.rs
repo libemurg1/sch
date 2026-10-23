@@ -44,7 +44,32 @@ pub struct CreateClassInput {
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 #[ts(export)]
+pub struct UpdateClassInput {
+    pub id: String,
+    pub name: String,
+    pub grade_level: i32,
+    pub capacity: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
 pub struct CreateTermInput {
+    pub year: i32,
+    pub term_number: i32,
+    pub start_date: String,
+    pub end_date: String,
+    #[serde(default)]
+    pub is_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct UpdateTermInput {
+    pub id: String,
     pub year: i32,
     pub term_number: i32,
     pub start_date: String,
@@ -131,16 +156,6 @@ pub struct AssignStudentFeeInput {
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 #[ts(export)]
-pub struct PaymentAllocationInput {
-    pub invoice_id: String,
-    #[ts(as = "f64")]
-    pub amount_cents: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-#[ts(export)]
 pub struct RecordPaymentInput {
     pub student_id: String,
     #[ts(as = "f64")]
@@ -151,7 +166,22 @@ pub struct RecordPaymentInput {
     pub reference_number: Option<String>,
     #[serde(default)]
     pub created_by: Option<String>,
-    pub allocations: Vec<PaymentAllocationInput>,
+}
+
+/// A student's running account: what they owe, what is held as credit, and the
+/// net position. A negative balance means the student is in credit.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct StudentAccount {
+    pub student_id: String,
+    #[ts(as = "f64")]
+    pub outstanding_cents: i64,
+    #[ts(as = "f64")]
+    pub credit_cents: i64,
+    #[ts(as = "f64")]
+    pub balance_cents: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -195,6 +225,8 @@ pub struct StudentStatement {
     pub total_billed_cents: i64,
     #[ts(as = "f64")]
     pub total_paid_cents: i64,
+    #[ts(as = "f64")]
+    pub credit_cents: i64,
     #[ts(as = "f64")]
     pub balance_cents: i64,
 }
