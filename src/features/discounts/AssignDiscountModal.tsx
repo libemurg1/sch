@@ -12,6 +12,7 @@ import {
   ErrorBanner,
   Field,
   Modal,
+  SearchablePicker,
   Select,
   StudentPicker,
 } from "../../components"
@@ -147,21 +148,20 @@ export function AssignDiscountModal({
           htmlFor="discount-term"
           hint="Leave blank to apply the discount in every term."
         >
-          <Select
+          <SearchablePicker
             id="discount-term"
             value={termId}
-            onChange={(event) => {
-              setTermId(event.target.value)
+            onChange={(value) => {
+              setTermId(value)
               setTargetFeeItemId("")
             }}
-          >
-            <option value="">Every term</option>
-            {(terms.data ?? []).map((term) => (
-              <option key={term.id} value={term.id}>
-                {formatTermLabel(term)}
-              </option>
-            ))}
-          </Select>
+            options={(terms.data ?? []).map((term) => ({
+              id: term.id,
+              label: formatTermLabel(term),
+            }))}
+            placeholder="Every term"
+            searchPlaceholder="Search terms"
+          />
         </Field>
 
         <Field

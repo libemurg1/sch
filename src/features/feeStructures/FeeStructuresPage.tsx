@@ -13,7 +13,7 @@ import {
   Input,
   Loading,
   PageHeader,
-  Select,
+  SearchablePicker,
 } from "../../components"
 import { Page } from "../../app/AppShell"
 import { formatTermLabel } from "../../lib/dates"
@@ -153,18 +153,17 @@ export function FeeStructuresPage() {
             >
               Class
             </label>
-            <Select
+            <SearchablePicker
               id="fee-class"
               value={classId}
-              onChange={(event) => setClassId(event.target.value)}
-            >
-              <option value="">Choose a class</option>
-              {(classes.data ?? []).map((klass) => (
-                <option key={klass.id} value={klass.id}>
-                  {klass.name}
-                </option>
-              ))}
-            </Select>
+              onChange={setClassId}
+              options={(classes.data ?? []).map((klass) => ({
+                id: klass.id,
+                label: klass.name,
+              }))}
+              placeholder="Choose a class"
+              searchPlaceholder="Search classes"
+            />
           </div>
           <div className="w-56">
             <label
@@ -173,18 +172,17 @@ export function FeeStructuresPage() {
             >
               Term
             </label>
-            <Select
+            <SearchablePicker
               id="fee-term"
               value={termId}
-              onChange={(event) => setTermId(event.target.value)}
-            >
-              <option value="">Choose a term</option>
-              {(terms.data ?? []).map((term) => (
-                <option key={term.id} value={term.id}>
-                  {formatTermLabel(term)}
-                </option>
-              ))}
-            </Select>
+              onChange={setTermId}
+              options={(terms.data ?? []).map((term) => ({
+                id: term.id,
+                label: formatTermLabel(term),
+              }))}
+              placeholder="Choose a term"
+              searchPlaceholder="Search terms"
+            />
           </div>
         </div>
 

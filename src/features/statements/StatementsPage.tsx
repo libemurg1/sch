@@ -9,7 +9,7 @@ import {
   Field,
   Loading,
   PageHeader,
-  Select,
+  SearchablePicker,
   StudentPicker,
   Table,
   type Column,
@@ -135,18 +135,17 @@ export function StatementsPage() {
               htmlFor="statement-term"
               hint="Leave blank to include every term."
             >
-              <Select
+              <SearchablePicker
                 id="statement-term"
                 value={termId}
-                onChange={(event) => setTermId(event.target.value)}
-              >
-                <option value="">All terms</option>
-                {(terms.data ?? []).map((term) => (
-                  <option key={term.id} value={term.id}>
-                    {formatTermLabel(term)}
-                  </option>
-                ))}
-              </Select>
+                onChange={setTermId}
+                options={(terms.data ?? []).map((term) => ({
+                  id: term.id,
+                  label: formatTermLabel(term),
+                }))}
+                placeholder="All terms"
+                searchPlaceholder="Search terms"
+              />
             </Field>
           </div>
         </Card>

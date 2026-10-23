@@ -17,7 +17,7 @@ import {
   Field,
   Input,
   PageHeader,
-  Select,
+  SearchablePicker,
   StudentPicker,
 } from "../../components"
 import { Page } from "../../app/AppShell"
@@ -158,32 +158,30 @@ export function BillingPage() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Class" htmlFor="bill-class" required>
-                <Select
+                <SearchablePicker
                   id="bill-class"
                   value={classId}
-                  onChange={(event) => setClassId(event.target.value)}
-                >
-                  <option value="">Choose a class</option>
-                  {(classes.data ?? []).map((klass) => (
-                    <option key={klass.id} value={klass.id}>
-                      {klass.name}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={setClassId}
+                  options={(classes.data ?? []).map((klass) => ({
+                    id: klass.id,
+                    label: klass.name,
+                  }))}
+                  placeholder="Choose a class"
+                  searchPlaceholder="Search classes"
+                />
               </Field>
               <Field label="Term" htmlFor="bill-term" required>
-                <Select
+                <SearchablePicker
                   id="bill-term"
                   value={termId}
-                  onChange={(event) => setTermId(event.target.value)}
-                >
-                  <option value="">Choose a term</option>
-                  {(terms.data ?? []).map((term) => (
-                    <option key={term.id} value={term.id}>
-                      {formatTermLabel(term)}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={setTermId}
+                  options={(terms.data ?? []).map((term) => ({
+                    id: term.id,
+                    label: formatTermLabel(term),
+                  }))}
+                  placeholder="Choose a term"
+                  searchPlaceholder="Search terms"
+                />
               </Field>
               <Field label="Issue date" htmlFor="bill-issue" required>
                 <Input
@@ -239,18 +237,17 @@ export function BillingPage() {
             </Field>
 
             <Field label="Term" htmlFor="supp-term" required>
-              <Select
+              <SearchablePicker
                 id="supp-term"
                 value={supplementTermId}
-                onChange={(event) => setSupplementTermId(event.target.value)}
-              >
-                <option value="">Choose a term</option>
-                {(terms.data ?? []).map((term) => (
-                  <option key={term.id} value={term.id}>
-                    {formatTermLabel(term)}
-                  </option>
-                  ))}
-              </Select>
+                onChange={setSupplementTermId}
+                options={(terms.data ?? []).map((term) => ({
+                  id: term.id,
+                  label: formatTermLabel(term),
+                }))}
+                placeholder="Choose a term"
+                searchPlaceholder="Search terms"
+              />
             </Field>
 
             <Button
@@ -287,18 +284,17 @@ export function BillingPage() {
               />
             </Field>
             <Field label="Term" htmlFor="fee-term" required>
-              <Select
+              <SearchablePicker
                 id="fee-term"
                 value={feeTermId}
-                onChange={(event) => setFeeTermId(event.target.value)}
-              >
-                <option value="">Choose a term</option>
-                {(terms.data ?? []).map((term) => (
-                  <option key={term.id} value={term.id}>
-                    {formatTermLabel(term)}
-                  </option>
-                ))}
-              </Select>
+                onChange={setFeeTermId}
+                options={(terms.data ?? []).map((term) => ({
+                  id: term.id,
+                  label: formatTermLabel(term),
+                }))}
+                placeholder="Choose a term"
+                searchPlaceholder="Search terms"
+              />
             </Field>
             <Field label="Description" htmlFor="fee-description" required>
               <Input
