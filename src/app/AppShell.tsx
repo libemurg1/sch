@@ -68,8 +68,8 @@ export function AppShell() {
           className="h-7 w-7 shrink-0 rounded object-contain"
         />
       ) : (
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-indigo-600 text-[10px] font-bold text-white">
-          SFS
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-indigo-600 text-[9px] font-black tracking-[0.18em] text-white">
+          SM
         </div>
       )}
       <span className="truncate text-sm font-semibold text-slate-900">
