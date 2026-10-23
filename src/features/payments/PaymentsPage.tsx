@@ -21,6 +21,7 @@ import {
   PageHeader,
   Select,
   StatusBadge,
+  StudentPicker,
   Table,
   type Column,
 } from "../../components"
@@ -239,18 +240,12 @@ export function PaymentsPage() {
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Field label="Student" htmlFor="pay-student" required>
-                <Select
+                <StudentPicker
                   id="pay-student"
                   value={studentId}
-                  onChange={(event) => setStudentId(event.target.value)}
-                >
-                  <option value="">Choose a student</option>
-                  {(students.data ?? []).map((student) => (
-                    <option key={student.id} value={student.id}>
-                      {student.studentNumber} - {studentName(student)}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={setStudentId}
+                  students={students.data ?? []}
+                />
               </Field>
 
               <Field label="Payment date" htmlFor="pay-date" required>

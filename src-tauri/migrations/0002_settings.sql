@@ -8,6 +8,6 @@ CREATE TABLE IF NOT EXISTS school_settings (
 
 INSERT INTO school_settings (key, value) VALUES
   ('school.name', 'School Fees System'),
-  ('currency.code', 'KES'),
-  ('currency.symbol', 'KSh')
+  ('currency.code', 'USD'),
+  ('currency.symbol', '$')
 ON CONFLICT(key) DO NOTHING;

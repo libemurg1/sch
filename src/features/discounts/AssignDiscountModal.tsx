@@ -7,8 +7,15 @@ import {
   useStudents,
   useTerms,
 } from "../../api/queries"
-import { Button, ErrorBanner, Field, Modal, Select } from "../../components"
-import { formatTermLabel, studentName } from "../../lib/dates"
+import {
+  Button,
+  ErrorBanner,
+  Field,
+  Modal,
+  Select,
+  StudentPicker,
+} from "../../components"
+import { formatTermLabel } from "../../lib/dates"
 import { formatBasisPoints, formatMoney } from "../../lib/money"
 import type { AssignDiscountInput } from "../../types/schema/AssignDiscountInput"
 
@@ -107,18 +114,12 @@ export function AssignDiscountModal({
 
         {!presetStudentId ? (
           <Field label="Student" htmlFor="discount-student" required>
-            <Select
+            <StudentPicker
               id="discount-student"
               value={studentId}
-              onChange={(event) => setStudentId(event.target.value)}
-            >
-              <option value="">Choose a student</option>
-              {(students.data ?? []).map((student) => (
-                <option key={student.id} value={student.id}>
-                  {student.studentNumber} - {studentName(student)}
-                </option>
-              ))}
-            </Select>
+              onChange={setStudentId}
+              students={students.data ?? []}
+            />
           </Field>
         ) : null}
 

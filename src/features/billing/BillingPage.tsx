@@ -18,9 +18,10 @@ import {
   Input,
   PageHeader,
   Select,
+  StudentPicker,
 } from "../../components"
 import { Page } from "../../app/AppShell"
-import { formatDate, formatTermLabel, studentName } from "../../lib/dates"
+import { formatTermLabel } from "../../lib/dates"
 import { parseMoneyToCents } from "../../lib/money"
 
 export function BillingPage() {
@@ -74,10 +75,6 @@ export function BillingPage() {
       setClassId(classes.data[0].id)
     }
   }, [classes.data, classId])
-
-  const studentNames = new Map(
-    (students.data ?? []).map((student) => [student.id, studentName(student)]),
-  )
 
   const runBatch = () => {
     batch.mutate(
@@ -233,18 +230,12 @@ export function BillingPage() {
             ) : null}
 
             <Field label="Student" htmlFor="supp-student" required>
-              <Select
+              <StudentPicker
                 id="supp-student"
                 value={supplementStudentId}
-                onChange={(event) => setSupplementStudentId(event.target.value)}
-              >
-                <option value="">Choose a student</option>
-                {(students.data ?? []).map((student) => (
-                  <option key={student.id} value={student.id}>
-                    {student.studentNumber} - {studentName(student)}
-                  </option>
-                ))}
-              </Select>
+                onChange={setSupplementStudentId}
+                students={students.data ?? []}
+              />
             </Field>
 
             <Field label="Term" htmlFor="supp-term" required>
@@ -288,18 +279,12 @@ export function BillingPage() {
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Student" htmlFor="fee-student" required>
-              <Select
+              <StudentPicker
                 id="fee-student"
                 value={feeStudentId}
-                onChange={(event) => setFeeStudentId(event.target.value)}
-              >
-                <option value="">Choose a student</option>
-                {(students.data ?? []).map((student) => (
-                  <option key={student.id} value={student.id}>
-                    {student.studentNumber} - {studentName(student)}
-                  </option>
-                ))}
-              </Select>
+                onChange={setFeeStudentId}
+                students={students.data ?? []}
+              />
             </Field>
             <Field label="Term" htmlFor="fee-term" required>
               <Select

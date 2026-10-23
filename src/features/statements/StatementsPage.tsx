@@ -10,6 +10,7 @@ import {
   Loading,
   PageHeader,
   Select,
+  StudentPicker,
   Table,
   type Column,
 } from "../../components"
@@ -122,20 +123,12 @@ export function StatementsPage() {
         <Card>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Student" htmlFor="statement-student">
-              <Select
+              <StudentPicker
                 id="statement-student"
                 value={studentId}
-                onChange={(event) =>
-                  setParams({ studentId: event.target.value })
-                }
-              >
-                <option value="">Choose a student</option>
-                {(students.data ?? []).map((student) => (
-                  <option key={student.id} value={student.id}>
-                    {student.studentNumber} - {studentName(student)}
-                  </option>
-                ))}
-              </Select>
+                onChange={(nextStudentId) => setParams({ studentId: nextStudentId })}
+                students={students.data ?? []}
+              />
             </Field>
             <Field
               label="Term"

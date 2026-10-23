@@ -17,8 +17,8 @@ export interface Currency {
 }
 
 export const DEFAULT_CURRENCY: Currency = {
-  code: "KES",
-  symbol: "KSh",
+  code: "USD",
+  symbol: "$",
 }
 
 let activeCurrency: Currency = DEFAULT_CURRENCY

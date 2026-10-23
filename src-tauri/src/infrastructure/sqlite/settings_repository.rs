@@ -30,8 +30,8 @@ const KEY_RECEIPT_FOOTER: &str = "footer.receipt";
 const KEY_INVOICE_FOOTER: &str = "footer.invoice";
 
 pub const DEFAULT_SCHOOL_NAME: &str = "School Fees System";
-pub const DEFAULT_CURRENCY_CODE: &str = "KES";
-pub const DEFAULT_CURRENCY_SYMBOL: &str = "KSh";
+pub const DEFAULT_CURRENCY_CODE: &str = "USD";
+pub const DEFAULT_CURRENCY_SYMBOL: &str = "$";
 
 fn load(conn: &Connection) -> AppResult<HashMap<String, String>> {
     let mut stmt = conn.prepare("SELECT key, value FROM school_settings")?;
