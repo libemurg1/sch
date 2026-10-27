@@ -2,6 +2,7 @@ import { call } from "./client"
 import type { RegisterStudentInput } from "../types/schema/RegisterStudentInput"
 import type { Student } from "../types/schema/Student"
 import type { StudentAccount } from "../types/schema/StudentAccount"
+import type { UpdateStudentInput } from "../types/schema/UpdateStudentInput"
 import type { UpdateStudentStatusInput } from "../types/schema/UpdateStudentStatusInput"
 
 /** Every student, whatever their status. */
@@ -20,6 +21,11 @@ export function registerStudent(input: RegisterStudentInput): Promise<Student> {
 
 export function getStudent(id: string): Promise<Student | null> {
   return call<Student | null>("get_student", { id })
+}
+
+/** Changes a student's details; the student number and status are immutable. */
+export function updateStudent(input: UpdateStudentInput): Promise<Student> {
+  return call<Student>("update_student", { input })
 }
 
 /** Students are never deleted; they move between soft states instead. */

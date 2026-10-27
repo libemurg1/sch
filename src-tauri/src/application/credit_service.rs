@@ -65,6 +65,8 @@ impl CreditService {
                     payment_id: source.payment_id.clone(),
                     invoice_id: invoice.id.clone(),
                     amount_cents: amount,
+                    reversed_at: None,
+                    reversal_reason: None,
                 })?;
                 invoices.apply_payment(&invoice.id, amount)?;
 
@@ -73,10 +75,7 @@ impl CreditService {
             }
         }
 
-        Ok(sources
-            .iter()
-            .map(|source| source.remaining_cents)
-            .sum())
+        Ok(sources.iter().map(|source| source.remaining_cents).sum())
     }
 
     /// Billed-but-unpaid, unapplied credit and the net balance for a student.
@@ -241,6 +240,61 @@ mod tests {
         assert_eq!(account.outstanding_cents, 10_000);
         assert_eq!(account.credit_cents, 0);
         assert_eq!(account.balance_cents, 10_000);
+
+        drop(db);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reversing_a_payment_restores_invoice_balance_and_audit_reason() {
+        let (db, dir) = temp_db("reverse");
+        seed_student_and_term(&db);
+        add_invoice(&db, "i1", "INV-1", "2026-03-01", 40_000);
+        db.transaction(|conn| {
+            conn.execute(
+                "INSERT INTO users (id, username, password_hash, display_name) \
+                 VALUES ('u1', 'admin', 'test-hash', 'Admin')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let payment = pay(&db, 25_000, "2026-02-01");
+        PaymentService::reverse(&db, &payment.id, "u1", "Duplicate receipt").unwrap();
+
+        let invoice = invoice(&db, "i1");
+        assert_eq!(invoice.paid_cents, 0);
+        assert_eq!(invoice.status, "UNPAID");
+
+        let account = CreditService::summary(&db, "s1").unwrap();
+        assert_eq!(account.outstanding_cents, 40_000);
+        assert_eq!(account.credit_cents, 0);
+        assert_eq!(account.balance_cents, 40_000);
+
+        let (reversed_at, reason): (Option<String>, Option<String>) = db
+            .with_conn(|conn| {
+                Ok(conn.query_row(
+                    "SELECT reversed_at, reversal_reason FROM payments WHERE id = ?",
+                    [&payment.id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?)
+            })
+            .unwrap();
+        assert!(reversed_at.is_some());
+        assert_eq!(reason.as_deref(), Some("Duplicate receipt"));
+
+        let audit_reason: String = db
+            .with_conn(|conn| {
+                Ok(conn.query_row(
+                    "SELECT json_extract(detail_json, '$.reason') FROM audit_log \
+                     WHERE entity = 'payment' AND action = 'reversed'",
+                    [],
+                    |row| row.get(0),
+                )?)
+            })
+            .unwrap();
+        assert_eq!(audit_reason, "Duplicate receipt");
 
         drop(db);
         let _ = fs::remove_dir_all(dir);

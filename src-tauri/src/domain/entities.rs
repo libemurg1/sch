@@ -24,10 +24,22 @@ pub struct Student {
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 #[ts(export)]
+pub struct Grade {
+    pub level: i32,
+    pub name: String,
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
 pub struct Class {
     pub id: String,
     pub name: String,
     pub grade_level: i32,
+    pub stream: String,
+    pub academic_year: i32,
     pub capacity: i32,
 }
 
@@ -55,6 +67,8 @@ pub struct Enrollment {
     pub term_id: String,
     pub status: String,
     pub enrolled_at: String,
+    pub ended_at: Option<String>,
+    pub end_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -108,6 +122,9 @@ pub struct StudentDiscount {
     pub target_fee_item_id: Option<String>,
     pub target_student_fee_id: Option<String>,
     pub reason: Option<String>,
+    pub revoked_at: Option<String>,
+    pub revoked_by: Option<String>,
+    pub revoke_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -148,6 +165,9 @@ pub struct Invoice {
     pub total_cents: i64,
     #[ts(as = "f64")]
     pub paid_cents: i64,
+    pub cancelled_at: Option<String>,
+    pub cancelled_by: Option<String>,
+    pub cancel_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -181,6 +201,9 @@ pub struct Payment {
     pub reference_number: Option<String>,
     pub created_by: Option<String>,
     pub created_at: String,
+    pub reversed_at: Option<String>,
+    pub reversed_by: Option<String>,
+    pub reversal_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -193,4 +216,6 @@ pub struct PaymentAllocation {
     pub invoice_id: String,
     #[ts(as = "f64")]
     pub amount_cents: i64,
+    pub reversed_at: Option<String>,
+    pub reversal_reason: Option<String>,
 }

@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { useDeleteTerm, useTerms } from "../../api/queries"
+import { useEffect, useMemo, useState } from "react"
+import { useActiveTerm, useDeleteTerm, useTerms } from "../../api/queries"
 import {
   Badge,
   Button,
@@ -10,19 +10,48 @@ import {
   Loading,
   PageHeader,
   Table,
+  YearSelect,
   type Column,
 } from "../../components"
 import { Page } from "../../app/AppShell"
 import { formatTermLabel } from "../../lib/dates"
+import { ALL_YEARS, collectYears, defaultYear } from "../../lib/years"
 import type { Term } from "../../types/schema/Term"
 import { CreateTermModal } from "./CreateTermModal"
 
 export function TermsPage() {
   const terms = useTerms()
+  const activeTerm = useActiveTerm()
+  const [year, setYear] = useState("")
   const [addingTerm, setAddingTerm] = useState(false)
   const [editingTerm, setEditingTerm] = useState<Term | null>(null)
   const [deletingTerm, setDeletingTerm] = useState<Term | null>(null)
   const removeTerm = useDeleteTerm()
+
+  const years = useMemo(
+    () =>
+      collectYears([
+        ...(terms.data ?? []).map((term) => term.year),
+        activeTerm.data?.year,
+      ]),
+    [terms.data, activeTerm.data],
+  )
+
+  useEffect(() => {
+    if (year !== "") {
+      return
+    }
+    if (terms.isLoading || activeTerm.isLoading) {
+      return
+    }
+    setYear(defaultYear(activeTerm.data?.year, years))
+  }, [year, terms.isLoading, activeTerm.isLoading, activeTerm.data, years])
+
+  const allTerms = terms.data ?? []
+  const rows =
+    year === ALL_YEARS || year === ""
+      ? allTerms
+      : allTerms.filter((term) => term.year === Number(year))
 
   const termColumns: Column<Term>[] = [
     {
@@ -91,20 +120,33 @@ export function TermsPage() {
           </Button>
         }
       >
+        <div className="mb-4 flex flex-wrap gap-3">
+          <YearSelect
+            id="term-year-filter"
+            value={year}
+            onChange={setYear}
+            years={years}
+          />
+        </div>
+
         {terms.isLoading ? (
           <Loading />
         ) : terms.isError ? (
           <ErrorBanner error={terms.error} onRetry={() => terms.refetch()} />
-        ) : (terms.data ?? []).length === 0 ? (
+        ) : rows.length === 0 ? (
           <EmptyState
-            title="No terms yet"
-            description="Create a term to start billing and enrollment for a new cycle."
+            title={allTerms.length === 0 ? "No terms yet" : "No terms in this year"}
+            description={
+              allTerms.length === 0
+                ? "Create a term to start billing and enrollment for a new cycle."
+                : "Choose another year or add a term for this year."
+            }
             action={<Button onClick={() => setAddingTerm(true)}>Add term</Button>}
           />
         ) : (
           <Table
             columns={termColumns}
-            rows={terms.data ?? []}
+            rows={rows}
             keyOf={(term) => term.id}
           />
         )}

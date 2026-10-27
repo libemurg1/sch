@@ -3,5 +3,6 @@ import type { Invoice } from "./Invoice";
 import type { Payment } from "./Payment";
 import type { Student } from "./Student";
 import type { Term } from "./Term";
+import type { AccountLedgerEntry } from "./AccountLedgerEntry";
 
-export type StudentStatement = { student: Student, term: Term | null, invoices: Array<Invoice>, payments: Array<Payment>, totalBilledCents: number, totalPaidCents: number, creditCents: number, balanceCents: number, };
+export type StudentStatement = { student: Student, term: Term | null, invoices: Array<Invoice>, payments: Array<Payment>, ledger: Array<AccountLedgerEntry>, totalBilledCents: number, totalPaidCents: number, creditCents: number, balanceCents: number, };

@@ -1,8 +1,8 @@
-use crate::AppState;
 use crate::application::student_service::StudentService;
-use crate::domain::dto::{RegisterStudentInput, UpdateStudentStatusInput};
+use crate::domain::dto::{RegisterStudentInput, UpdateStudentInput, UpdateStudentStatusInput};
 use crate::domain::entities::Student;
 use crate::domain::errors::AppResult;
+use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
@@ -33,6 +33,12 @@ pub fn register_student(
 pub fn get_student(state: State<'_, AppState>, id: String) -> AppResult<Option<Student>> {
     let _user = state.require_auth()?;
     StudentService::find(&state.db, &id)
+}
+
+#[tauri::command]
+pub fn update_student(state: State<'_, AppState>, input: UpdateStudentInput) -> AppResult<Student> {
+    let _user = state.require_auth()?;
+    StudentService::update_details(&state.db, input)
 }
 
 #[tauri::command]

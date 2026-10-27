@@ -5,6 +5,7 @@ import {
   type UseMutationResult,
 } from "@tanstack/react-query"
 import {
+  cancelInvoice,
   assignStudentFee,
   generateInvoiceBatch,
   generateSupplementaryInvoice,
@@ -16,8 +17,10 @@ import {
 import {
   assignDiscount,
   createDiscount,
+  listAllStudentDiscounts,
   listDiscounts,
   listStudentDiscounts,
+  revokeDiscount,
 } from "./discounts"
 import {
   createClass,
@@ -28,12 +31,20 @@ import {
   getActiveTerm,
   listClasses,
   listEnrollments,
+  listEnrollmentsByTerm,
+  listGrades,
   listStudentEnrollments,
   listTerms,
+  moveStudent,
   updateClass,
   updateTerm,
 } from "./enrollment"
 import { getFeeStructure, saveFeeStructure } from "./feeStructures"
+import {
+  applyPromotion,
+  copyClasses,
+  previewPromotion,
+} from "./promotion"
 import { listUsers } from "./auth"
 import {
   getPayment,
@@ -41,7 +52,9 @@ import {
   listPayments,
   listStudentPayments,
   recordPayment,
+  reversePayment,
 } from "./payments"
+import { getFinanceReport, listAuditEntries } from "./reports"
 import { getAppInfo } from "./setup"
 import { getInvoiceDetail, getStudentStatement } from "./statements"
 import {
@@ -50,8 +63,10 @@ import {
   listStudents,
   listStudentsByStatus,
   registerStudent,
+  updateStudent,
   updateStudentStatus,
 } from "./students"
+import type { ApplyPromotionInput } from "../types/schema/ApplyPromotionInput"
 import type { AssignDiscountInput } from "../types/schema/AssignDiscountInput"
 import type { AssignStudentFeeInput } from "../types/schema/AssignStudentFeeInput"
 import type { Class } from "../types/schema/Class"
@@ -60,12 +75,14 @@ import type { CreateDiscountInput } from "../types/schema/CreateDiscountInput"
 import type { CreateTermInput } from "../types/schema/CreateTermInput"
 import type { Discount } from "../types/schema/Discount"
 import type { EnrollStudentInput } from "../types/schema/EnrollStudentInput"
+import type { MoveStudentInput } from "../types/schema/MoveStudentInput"
 import type { Enrollment } from "../types/schema/Enrollment"
 import type { FeeStructure } from "../types/schema/FeeStructure"
 import type { GenerateBatchInput } from "../types/schema/GenerateBatchInput"
 import type { GenerateSupplementaryInput } from "../types/schema/GenerateSupplementaryInput"
 import type { Invoice } from "../types/schema/Invoice"
 import type { Payment } from "../types/schema/Payment"
+import type { PromotionResult } from "../types/schema/PromotionResult"
 import type { RecordPaymentInput } from "../types/schema/RecordPaymentInput"
 import type { RegisterStudentInput } from "../types/schema/RegisterStudentInput"
 import type { SaveFeeStructureInput } from "../types/schema/SaveFeeStructureInput"
@@ -74,6 +91,7 @@ import type { StudentDiscount } from "../types/schema/StudentDiscount"
 import type { StudentFee } from "../types/schema/StudentFee"
 import type { Term } from "../types/schema/Term"
 import type { UpdateClassInput } from "../types/schema/UpdateClassInput"
+import type { UpdateStudentInput } from "../types/schema/UpdateStudentInput"
 import type { UpdateStudentStatusInput } from "../types/schema/UpdateStudentStatusInput"
 import type { UpdateTermInput } from "../types/schema/UpdateTermInput"
 
@@ -81,6 +99,21 @@ import type { UpdateTermInput } from "../types/schema/UpdateTermInput"
 
 export function useAppInfo() {
   return useQuery({ queryKey: ["app-info"], queryFn: getAppInfo })
+}
+
+export function useFinanceReport(startDate: string, endDate: string) {
+  return useQuery({
+    queryKey: ["finance-report", startDate, endDate],
+    queryFn: () => getFinanceReport(startDate, endDate),
+    enabled: Boolean(startDate && endDate),
+  })
+}
+
+export function useAuditEntries() {
+  return useQuery({
+    queryKey: ["audit-entries"],
+    queryFn: () => listAuditEntries(),
+  })
 }
 
 export function useStudents(status?: string) {
@@ -107,8 +140,27 @@ export function useStudentAccount(studentId: string | undefined) {
   })
 }
 
-export function useClasses() {
-  return useQuery({ queryKey: ["classes"], queryFn: listClasses })
+export function useClasses(year?: number) {
+  return useQuery({
+    queryKey: ["classes", year ?? "all"],
+    queryFn: () => listClasses(year),
+  })
+}
+
+export function useGrades() {
+  return useQuery({ queryKey: ["grades"], queryFn: listGrades })
+}
+
+export function usePromotionPreview(
+  fromYear: number | undefined,
+  toYear: number | undefined,
+) {
+  return useQuery({
+    queryKey: ["promotion-preview", fromYear, toYear],
+    queryFn: () =>
+      previewPromotion(fromYear as number, toYear as number),
+    enabled: Boolean(fromYear && toYear),
+  })
 }
 
 export function useTerms() {
@@ -124,6 +176,14 @@ export function useEnrollments(classId: string | undefined, termId: string | und
     queryKey: ["enrollments", classId, termId],
     queryFn: () => listEnrollments(classId as string, termId as string),
     enabled: Boolean(classId && termId),
+  })
+}
+
+export function useEnrollmentsByTerm(termId: string | undefined) {
+  return useQuery({
+    queryKey: ["enrollments", "term", termId],
+    queryFn: () => listEnrollmentsByTerm(termId as string),
+    enabled: Boolean(termId),
   })
 }
 
@@ -145,6 +205,13 @@ export function useFeeStructure(classId: string | undefined, termId: string | un
 
 export function useDiscounts() {
   return useQuery({ queryKey: ["discounts"], queryFn: listDiscounts })
+}
+
+export function useAllStudentDiscounts() {
+  return useQuery({
+    queryKey: ["student-discounts", "all"],
+    queryFn: listAllStudentDiscounts,
+  })
 }
 
 export function useStudentDiscounts(
@@ -262,6 +329,18 @@ export function useRegisterStudent(): UseMutationResult<
   })
 }
 
+export function useUpdateStudent(): UseMutationResult<
+  Student,
+  unknown,
+  UpdateStudentInput
+> {
+  const invalidate = useInvalidateAll()
+  return useMutation({
+    mutationFn: updateStudent,
+    onSuccess: invalidate,
+  })
+}
+
 export function useUpdateStudentStatus(): UseMutationResult<
   void,
   unknown,
@@ -329,6 +408,36 @@ export function useEnrollStudent(): UseMutationResult<
   return useMutation({ mutationFn: enrollStudent, onSuccess: invalidate })
 }
 
+export function useMoveStudent(): UseMutationResult<
+  Enrollment,
+  unknown,
+  MoveStudentInput
+> {
+  const invalidate = useInvalidateAll()
+  return useMutation({ mutationFn: moveStudent, onSuccess: invalidate })
+}
+
+export function useCopyClasses(): UseMutationResult<
+  number,
+  unknown,
+  { fromYear: number; toYear: number }
+> {
+  const invalidate = useInvalidateAll()
+  return useMutation({
+    mutationFn: ({ fromYear, toYear }) => copyClasses(fromYear, toYear),
+    onSuccess: invalidate,
+  })
+}
+
+export function useApplyPromotion(): UseMutationResult<
+  PromotionResult,
+  unknown,
+  ApplyPromotionInput
+> {
+  const invalidate = useInvalidateAll()
+  return useMutation({ mutationFn: applyPromotion, onSuccess: invalidate })
+}
+
 export function useSaveFeeStructure(): UseMutationResult<
   FeeStructure,
   unknown,
@@ -354,6 +463,18 @@ export function useAssignDiscount(): UseMutationResult<
 > {
   const invalidate = useInvalidateAll()
   return useMutation({ mutationFn: assignDiscount, onSuccess: invalidate })
+}
+
+export function useRevokeDiscount(): UseMutationResult<
+  StudentDiscount,
+  unknown,
+  { grantId: string; reason: string }
+> {
+  const invalidate = useInvalidateAll()
+  return useMutation({
+    mutationFn: ({ grantId, reason }) => revokeDiscount(grantId, reason),
+    onSuccess: invalidate,
+  })
 }
 
 export function useGenerateInvoiceBatch(): UseMutationResult<
@@ -386,6 +507,18 @@ export function useAssignStudentFee(): UseMutationResult<
   return useMutation({ mutationFn: assignStudentFee, onSuccess: invalidate })
 }
 
+export function useCancelInvoice(): UseMutationResult<
+  Invoice,
+  unknown,
+  { invoiceId: string; reason: string }
+> {
+  const invalidate = useInvalidateAll()
+  return useMutation({
+    mutationFn: ({ invoiceId, reason }) => cancelInvoice(invoiceId, reason),
+    onSuccess: invalidate,
+  })
+}
+
 export function useRecordPayment(): UseMutationResult<
   Payment,
   unknown,
@@ -393,4 +526,16 @@ export function useRecordPayment(): UseMutationResult<
 > {
   const invalidate = useInvalidateAll()
   return useMutation({ mutationFn: recordPayment, onSuccess: invalidate })
+}
+
+export function useReversePayment(): UseMutationResult<
+  Payment,
+  unknown,
+  { paymentId: string; reason: string }
+> {
+  const invalidate = useInvalidateAll()
+  return useMutation({
+    mutationFn: ({ paymentId, reason }) => reversePayment(paymentId, reason),
+    onSuccess: invalidate,
+  })
 }

@@ -1,9 +1,9 @@
-use crate::AppState;
 use crate::application::billing_service::BillingService;
 use crate::application::today;
 use crate::domain::dto::AppInfo;
 use crate::domain::errors::{AppError, AppResult};
 use crate::infrastructure::backup;
+use crate::AppState;
 use std::path::PathBuf;
 use tauri::State;
 
@@ -59,4 +59,38 @@ pub fn list_backups(state: State<'_, AppState>) -> AppResult<Vec<String>> {
 pub fn restore_database(state: State<'_, AppState>, backup_path: String) -> AppResult<()> {
     let _user = state.require_auth()?;
     state.db.restore_from_backup(&PathBuf::from(backup_path))
+}
+
+/// Copies an application-created backup into a user-selected existing folder.
+#[tauri::command]
+pub fn export_backup(
+    state: State<'_, AppState>,
+    backup_path: String,
+    destination_directory: String,
+) -> AppResult<String> {
+    let _user = state.require_auth()?;
+    let source = PathBuf::from(backup_path);
+    let known_backups = backup::list_backups(&app_dir(&state)?)?;
+    let source_canonical = source.canonicalize().map_err(|error| {
+        AppError::new(
+            "BACKUP_FAILED",
+            format!("Cannot access backup source: {}", error),
+        )
+    })?;
+    let mut is_known_backup = false;
+    for path in known_backups {
+        if path.canonicalize()? == source_canonical {
+            is_known_backup = true;
+            break;
+        }
+    }
+    if !is_known_backup {
+        return Err(AppError::new(
+            "BACKUP_FAILED",
+            "Only backups created by this application can be exported here",
+        ));
+    }
+
+    let exported = backup::export_backup(&source, &PathBuf::from(destination_directory))?;
+    Ok(exported.to_string_lossy().into_owned())
 }

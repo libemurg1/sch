@@ -74,9 +74,7 @@ impl AppState {
     }
 
     /// Returns the authenticated user if logged in, without failing.
-    pub fn current_user(
-        &self,
-    ) -> crate::domain::errors::AppResult<Option<User>> {
+    pub fn current_user(&self) -> crate::domain::errors::AppResult<Option<User>> {
         Ok(self
             .session
             .lock()
@@ -127,8 +125,10 @@ fn main() {
             commands::students::list_students_by_status,
             commands::students::register_student,
             commands::students::get_student,
+            commands::students::update_student,
             commands::students::update_student_status,
             commands::enrollment::list_classes,
+            commands::enrollment::list_grades,
             commands::enrollment::create_class,
             commands::enrollment::update_class,
             commands::enrollment::delete_class,
@@ -138,11 +138,17 @@ fn main() {
             commands::enrollment::update_term,
             commands::enrollment::delete_term,
             commands::enrollment::enroll_student,
+            commands::enrollment::move_student,
             commands::enrollment::list_enrollments,
+            commands::enrollment::list_enrollments_by_term,
             commands::enrollment::list_student_enrollments,
+            commands::promotion::copy_classes,
+            commands::promotion::preview_promotion,
+            commands::promotion::apply_promotion,
             commands::fee_structures::get_fee_structure,
             commands::fee_structures::save_fee_structure,
             commands::billing::generate_invoice_batch,
+            commands::billing::cancel_invoice,
             commands::billing::generate_supplementary_invoice,
             commands::billing::assign_student_fee,
             commands::billing::list_invoices,
@@ -156,17 +162,23 @@ fn main() {
             commands::payments::get_payment,
             commands::payments::get_payment_allocations,
             commands::payments::get_student_account,
+            commands::payments::reverse_payment,
             commands::discounts::list_discounts,
             commands::discounts::create_discount,
             commands::discounts::list_student_discounts,
             commands::discounts::assign_discount,
+            commands::discounts::list_all_student_discounts,
+            commands::discounts::revoke_discount,
             commands::statements::get_student_statement,
             commands::statements::get_invoice_detail,
             commands::setup::get_app_info,
             commands::setup::backup_database,
             commands::setup::list_backups,
             commands::setup::restore_database,
+            commands::setup::export_backup,
+            commands::reports::get_finance_report,
+            commands::reports::list_audit_entries,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running the School Fees System application");
+        .expect("error while running the School System application");
 }

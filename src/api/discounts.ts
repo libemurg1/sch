@@ -27,6 +27,14 @@ export function listStudentDiscounts(
   return call<StudentDiscount[]>("list_student_discounts", { studentId, termId })
 }
 
+export function listAllStudentDiscounts(): Promise<StudentDiscount[]> {
+  return call<StudentDiscount[]>("list_all_student_discounts")
+}
+
+export function revokeDiscount(grantId: string, reason: string): Promise<StudentDiscount> {
+  return call<StudentDiscount>("revoke_discount", { grantId, reason })
+}
+
 /** Grants a discount to a student, optionally scoped to a term. */
 export function assignDiscount(
   input: AssignDiscountInput,

@@ -1,8 +1,8 @@
-use crate::AppState;
 use crate::application::billing_service::BillingService;
 use crate::domain::dto::{AssignStudentFeeInput, GenerateBatchInput, GenerateSupplementaryInput};
 use crate::domain::entities::{Invoice, InvoiceItem, StudentFee};
 use crate::domain::errors::AppResult;
+use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
@@ -10,8 +10,8 @@ pub fn generate_invoice_batch(
     state: State<'_, AppState>,
     input: GenerateBatchInput,
 ) -> AppResult<Vec<Invoice>> {
-    let _user = state.require_auth()?;
-    BillingService::generate_batch(&state.db, input)
+    let user = state.require_auth()?;
+    BillingService::generate_batch(&state.db, input, &user.id)
 }
 
 #[tauri::command]
@@ -19,8 +19,8 @@ pub fn generate_supplementary_invoice(
     state: State<'_, AppState>,
     input: GenerateSupplementaryInput,
 ) -> AppResult<Option<Invoice>> {
-    let _user = state.require_auth()?;
-    BillingService::create_supplementary(&state.db, input)
+    let user = state.require_auth()?;
+    BillingService::create_supplementary(&state.db, input, &user.id)
 }
 
 /// Records an ad-hoc charge (a late fee, for example) against a student.
@@ -29,8 +29,18 @@ pub fn assign_student_fee(
     state: State<'_, AppState>,
     input: AssignStudentFeeInput,
 ) -> AppResult<StudentFee> {
-    let _user = state.require_auth()?;
-    BillingService::assign_student_fee(&state.db, input)
+    let user = state.require_auth()?;
+    BillingService::assign_student_fee(&state.db, input, &user.id)
+}
+
+#[tauri::command]
+pub fn cancel_invoice(
+    state: State<'_, AppState>,
+    invoice_id: String,
+    reason: String,
+) -> AppResult<Invoice> {
+    let user = state.require_auth()?;
+    BillingService::cancel_invoice(&state.db, &invoice_id, &user.id, &reason)
 }
 
 #[tauri::command]

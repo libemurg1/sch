@@ -1,6 +1,6 @@
 use crate::domain::auth::{SchoolSettings, User};
 use crate::domain::entities::{
-    Class, Discount, Enrollment, FeeItem, FeeStructure, Invoice, InvoiceItem, Payment,
+    Class, Discount, Enrollment, FeeItem, FeeStructure, Grade, Invoice, InvoiceItem, Payment,
     PaymentAllocation, Student, StudentDiscount, StudentFee, Term,
 };
 use crate::domain::errors::AppResult;
@@ -14,16 +14,24 @@ pub trait StudentRepository {
     fn list(&self) -> AppResult<Vec<Student>>;
     fn list_by_status(&self, status: &str) -> AppResult<Vec<Student>>;
     fn update_status(&self, id: &str, status: &str) -> AppResult<()>;
+    /// Updates the editable student details, leaving the student number,
+    /// status and creation time untouched.
+    fn update_details(&self, student: &Student) -> AppResult<()>;
 }
 
 pub trait ClassRepository {
     fn list(&self) -> AppResult<Vec<Class>>;
+    fn list_by_year(&self, year: i32) -> AppResult<Vec<Class>>;
+    fn list_grades(&self) -> AppResult<Vec<Grade>>;
+    fn find_grade(&self, level: i32) -> AppResult<Option<Grade>>;
     fn find_by_id(&self, id: &str) -> AppResult<Option<Class>>;
-    fn find_by_name(&self, name: &str) -> AppResult<Option<Class>>;
+    fn find_by_year_name(&self, year: i32, name: &str) -> AppResult<Option<Class>>;
+
     fn create(&self, class: &Class) -> AppResult<()>;
     fn update(&self, class: &Class) -> AppResult<()>;
     fn delete(&self, id: &str) -> AppResult<()>;
-    /// Number of records (enrollments, fee structures, invoices) using this class.
+    /// Number of records (enrollments, promotions, fee structures, invoices)
+    /// using this class.
     fn reference_count(&self, id: &str) -> AppResult<i64>;
 }
 
@@ -49,16 +57,36 @@ pub trait EnrollmentRepository {
         term_id: &str,
     ) -> AppResult<Option<Enrollment>>;
     fn count_by_class_term(&self, class_id: &str, term_id: &str) -> AppResult<i32>;
+    /// Active enrollments only, used for billing and capacity checks.
     fn list_by_class_term(&self, class_id: &str, term_id: &str) -> AppResult<Vec<Enrollment>>;
-    fn list_by_student(&self, student_id: &str) -> AppResult<Vec<Enrollment>>;
-}
-
-pub trait FeeStructureRepository {
-    fn find_by_class_term(
+    /// Every enrollment for a class and term, including historical INACTIVE
+    /// rows, for roster and history screens.
+    fn list_by_class_term_all_statuses(
         &self,
         class_id: &str,
         term_id: &str,
-    ) -> AppResult<Option<FeeStructure>>;
+    ) -> AppResult<Vec<Enrollment>>;
+    /// Every enrollment for a term, including historical INACTIVE rows, for
+    /// grouped rosters that span several classes.
+    fn list_by_term(&self, term_id: &str) -> AppResult<Vec<Enrollment>>;
+    fn list_by_student(&self, student_id: &str) -> AppResult<Vec<Enrollment>>;
+    /// Moves an existing enrollment to another class in the same term.
+    fn update_class(&self, enrollment_id: &str, class_id: &str) -> AppResult<()>;
+    /// Marks every active enrollment of a student as inactive, so only the
+    /// enrollment for the current year stays active.
+    fn deactivate_active_for_student(&self, student_id: &str) -> AppResult<()>;
+    fn set_status(
+        &self,
+        enrollment_id: &str,
+        status: &str,
+        ended_at: Option<&str>,
+        end_reason: Option<&str>,
+    ) -> AppResult<()>;
+    fn count_active_for_student(&self, student_id: &str) -> AppResult<i64>;
+}
+
+pub trait FeeStructureRepository {
+    fn find_by_class_term(&self, class_id: &str, term_id: &str) -> AppResult<Option<FeeStructure>>;
     fn list_items(&self, fee_structure_id: &str) -> AppResult<Vec<FeeItem>>;
     /// Creates or replaces a fee structure together with its items.
     fn save(&self, structure: &FeeStructure, items: &[FeeItem]) -> AppResult<()>;
@@ -75,14 +103,19 @@ pub trait InvoiceRepository {
     ) -> AppResult<Option<Invoice>>;
     fn list(&self) -> AppResult<Vec<Invoice>>;
     fn list_by_student(&self, student_id: &str) -> AppResult<Vec<Invoice>>;
-    fn list_by_class_term(
-        &self,
-        class_id: &str,
-        term_id: &str,
-    ) -> AppResult<Vec<Invoice>>;
+    fn list_by_class_term(&self, class_id: &str, term_id: &str) -> AppResult<Vec<Invoice>>;
     fn find_by_id(&self, id: &str) -> AppResult<Option<Invoice>>;
     /// Adds `amount_cents` to the invoice's paid amount and recomputes status.
     fn apply_payment(&self, invoice_id: &str, amount_cents: i64) -> AppResult<Invoice>;
+    /// Removes an allocation amount from an invoice and recomputes its status.
+    fn unapply_payment(&self, invoice_id: &str, amount_cents: i64) -> AppResult<Invoice>;
+    fn cancel(
+        &self,
+        invoice_id: &str,
+        actor_id: &str,
+        reason: &str,
+        at: &str,
+    ) -> AppResult<Invoice>;
 }
 
 /// Money that has been received but not yet applied to an invoice.
@@ -98,23 +131,44 @@ pub trait PaymentRepository {
     fn list(&self) -> AppResult<Vec<Payment>>;
     fn list_by_student(&self, student_id: &str) -> AppResult<Vec<Payment>>;
     fn list_allocations(&self, payment_id: &str) -> AppResult<Vec<PaymentAllocation>>;
+    fn list_allocations_for_student(&self, student_id: &str) -> AppResult<Vec<PaymentAllocation>>;
     /// Adds a single allocation to an existing payment.
     fn add_allocation(&self, allocation: &PaymentAllocation) -> AppResult<()>;
+    fn reverse_allocation(&self, allocation_id: &str, reason: &str, at: &str) -> AppResult<()>;
+    fn mark_reversed(
+        &self,
+        payment_id: &str,
+        actor_id: &str,
+        reason: &str,
+        at: &str,
+    ) -> AppResult<Payment>;
     /// Unallocated payments for a student, oldest first.
     fn credit_sources(&self, student_id: &str) -> AppResult<Vec<CreditSource>>;
 }
 
 pub trait StudentFeeRepository {
     fn create(&self, fee: &StudentFee) -> AppResult<()>;
+    fn find_by_id(&self, fee_id: &str) -> AppResult<Option<StudentFee>>;
     fn list_pending(&self, student_id: &str, term_id: &str) -> AppResult<Vec<StudentFee>>;
     fn mark_billed(&self, fee_id: &str, invoice_id: &str) -> AppResult<()>;
+    fn mark_removed(&self, fee_id: &str) -> AppResult<()>;
+    fn reset_pending_for_invoice(&self, invoice_id: &str) -> AppResult<()>;
 }
 
 pub trait DiscountRepository {
     fn list_active(&self) -> AppResult<Vec<Discount>>;
     fn list_for_student(&self, student_id: &str, term_id: &str) -> AppResult<Vec<StudentDiscount>>;
+    fn list_all_grants(&self) -> AppResult<Vec<StudentDiscount>>;
+    fn find_grant_by_id(&self, grant_id: &str) -> AppResult<Option<StudentDiscount>>;
     fn create(&self, discount: &Discount) -> AppResult<()>;
     fn assign(&self, student_discount: &StudentDiscount) -> AppResult<()>;
+    fn revoke_grant(
+        &self,
+        grant_id: &str,
+        actor_id: &str,
+        reason: &str,
+        at: &str,
+    ) -> AppResult<StudentDiscount>;
 }
 
 pub trait UserRepository {

@@ -57,9 +57,10 @@ impl StudentRepository for SqliteStudentRepository<'_> {
     }
 
     fn find_by_id(&self, id: &str) -> AppResult<Option<Student>> {
-        let mut stmt = self
-            .conn
-            .prepare(&format!("SELECT {} FROM students WHERE id = ?", STUDENT_COLUMNS))?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} FROM students WHERE id = ?",
+            STUDENT_COLUMNS
+        ))?;
         let mut rows = stmt.query(params![id])?;
         match rows.next()? {
             Some(row) => Ok(Some(map_student(row)?)),
@@ -100,6 +101,32 @@ impl StudentRepository for SqliteStudentRepository<'_> {
         )?;
         if changed == 0 {
             return Err(crate::domain::errors::AppError::not_found("Student", id));
+        }
+        Ok(())
+    }
+
+    fn update_details(&self, student: &Student) -> AppResult<()> {
+        let changed = self.conn.execute(
+            "UPDATE students SET first_name = ?, last_name = ?, dob = ?, gender = ?, \
+             admission_date = ?, guardian_name = ?, guardian_phone = ?, guardian_email = ? \
+             WHERE id = ?",
+            params![
+                student.first_name,
+                student.last_name,
+                student.dob,
+                student.gender,
+                student.admission_date,
+                student.guardian_name,
+                student.guardian_phone,
+                student.guardian_email,
+                student.id,
+            ],
+        )?;
+        if changed == 0 {
+            return Err(crate::domain::errors::AppError::not_found(
+                "Student",
+                &student.id,
+            ));
         }
         Ok(())
     }

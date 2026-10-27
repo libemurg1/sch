@@ -28,6 +28,7 @@ import { formatMoney } from "../../lib/money"
 import type { Enrollment } from "../../types/schema/Enrollment"
 import type { Invoice } from "../../types/schema/Invoice"
 import type { Payment } from "../../types/schema/Payment"
+import { StudentFormModal } from "./StudentFormModal"
 
 const STATUSES = ["ACTIVE", "INACTIVE", "GRADUATED"]
 
@@ -43,6 +44,7 @@ export function StudentDetailPage() {
   const updateStatus = useUpdateStudentStatus()
 
   const [nextStatus, setNextStatus] = useState("")
+  const [editing, setEditing] = useState(false)
 
   if (student.isLoading) {
     return (
@@ -205,12 +207,17 @@ export function StudentDetailPage() {
           </>
         }
         actions={
-          <Link
-            to={`/statements?studentId=${record.id}`}
-            className="rounded-md bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
-          >
-            Statement
-          </Link>
+          <>
+            <Button variant="secondary" onClick={() => setEditing(true)}>
+              Edit
+            </Button>
+            <Link
+              to={`/statements?studentId=${record.id}`}
+              className="rounded-md bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
+            >
+              Statement
+            </Link>
+          </>
         }
       />
 
@@ -357,6 +364,12 @@ export function StudentDetailPage() {
           />
         )}
       </Card>
+
+      <StudentFormModal
+        open={editing}
+        onClose={() => setEditing(false)}
+        student={record}
+      />
     </Page>
   )
 }

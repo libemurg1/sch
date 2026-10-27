@@ -7,6 +7,10 @@ export function recordPayment(input: RecordPaymentInput): Promise<Payment> {
   return call<Payment>("record_payment", { input })
 }
 
+export function reversePayment(paymentId: string, reason: string): Promise<Payment> {
+  return call<Payment>("reverse_payment", { paymentId, reason })
+}
+
 export function listPayments(): Promise<Payment[]> {
   return call<Payment[]>("list_payments")
 }

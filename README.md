@@ -187,6 +187,9 @@ For professional deployment, a signed installer is recommended for enterprise di
 5. Generate term invoices or supplemental invoices.
 6. Record payments and allocate them against invoices.
 7. Print receipts, statements, or invoice documents as needed.
+8. Review collections, outstanding balances, overdue invoices, and the audit
+   trail in Finance Reports.
+9. Create a database backup and export a copy to a removable or external drive.
 
 ## Business Rules
 
@@ -198,6 +201,16 @@ The application is built around a few important financial rules:
 - Discounts may be fixed or percentage-based and are applied according to business logic in the backend.
 - The database enforces local, transactional behavior for financial operations.
 - Printing uses app-generated HTML layouts for structured documents.
+- Student statements include an account ledger: invoices are debits; payments
+  and invoice cancellations are credits; payment reversals are debits. Each row
+  shows the running balance. Term-filtered statements include payments
+  allocated to that term.
+- Financial corrections are recorded as reversals or cancellations with a
+  required reason; the original transaction remains in the history.
+- Finance reports summarize collections by payment method for a selected date
+  range and show outstanding and overdue balances by term.
+- Financial events are written to the audit trail with the signed-in user and
+  are viewable in Finance Reports.
 
 ## Database and Local Storage
 
@@ -206,10 +219,15 @@ The app stores data in a local SQLite database managed by the Rust backend. The 
 ## Notes
 
 - The app is intended for local/offline use, not a multi-user web deployment.
+- The initial operating model is one trusted operator with full access. The app
+  does not implement role-based permissions; any additional active account
+  also has full access.
+- Backups are initially stored beside the app's local data. Use Maintenance to
+  export a backup to an existing folder on a removable or external drive.
+  Keep at least one copy separate from the computer that runs the app.
 - Most financial operations are implemented in the Rust backend to keep business logic centralized and consistent.
 - The frontend acts as a desktop UI layer over Tauri commands and the local database.
 
 ## License
 
 This project does not currently declare a license in the repository. If you plan to distribute or reuse it, add an explicit license before publishing.
-

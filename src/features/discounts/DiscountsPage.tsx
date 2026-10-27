@@ -1,26 +1,53 @@
 import { useState } from "react"
-import { useDiscounts } from "../../api/queries"
+import {
+  useAllStudentDiscounts,
+  useDiscounts,
+  useRevokeDiscount,
+  useStudents,
+  useTerms,
+} from "../../api/queries"
 import {
   Badge,
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorBanner,
+  Field,
+  Input,
   Loading,
   PageHeader,
   Table,
   type Column,
 } from "../../components"
 import { Page } from "../../app/AppShell"
+import { formatTermLabel, studentName } from "../../lib/dates"
 import { formatBasisPoints, formatMoney } from "../../lib/money"
 import type { Discount } from "../../types/schema/Discount"
+import type { StudentDiscount } from "../../types/schema/StudentDiscount"
 import { AssignDiscountModal } from "./AssignDiscountModal"
 import { CreateDiscountModal } from "./CreateDiscountModal"
 
 export function DiscountsPage() {
   const discounts = useDiscounts()
+  const grants = useAllStudentDiscounts()
+  const students = useStudents()
+  const terms = useTerms()
+  const revokeMutation = useRevokeDiscount()
   const [creating, setCreating] = useState(false)
   const [assigning, setAssigning] = useState(false)
+  const [revoking, setRevoking] = useState<StudentDiscount | null>(null)
+  const [revokeReason, setRevokeReason] = useState("")
+
+  const studentNames = new Map(
+    (students.data ?? []).map((student) => [student.id, studentName(student)]),
+  )
+  const discountNames = new Map(
+    (discounts.data ?? []).map((discount) => [discount.id, discount.name]),
+  )
+  const termLabels = new Map(
+    (terms.data ?? []).map((term) => [term.id, formatTermLabel(term)]),
+  )
 
   const columns: Column<Discount>[] = [
     {
@@ -62,6 +89,58 @@ export function DiscountsPage() {
     },
   ]
 
+  const grantColumns: Column<StudentDiscount>[] = [
+    {
+      key: "student",
+      header: "Student",
+      render: (grant) => studentNames.get(grant.studentId) ?? grant.studentId,
+    },
+    {
+      key: "discount",
+      header: "Discount",
+      render: (grant) => discountNames.get(grant.discountId) ?? grant.discountId,
+    },
+    {
+      key: "term",
+      header: "Term",
+      render: (grant) => (grant.termId ? termLabels.get(grant.termId) ?? grant.termId : "Every term"),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (grant) =>
+        grant.revokedAt ? (
+          <Badge tone="neutral">Revoked</Badge>
+        ) : (
+          <Badge tone="success">Active</Badge>
+        ),
+    },
+    {
+      key: "reason",
+      header: "Reason",
+      render: (grant) => grant.revokeReason ?? grant.reason ?? "-",
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (grant) =>
+        grant.revokedAt ? null : (
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => {
+              revokeMutation.reset()
+              setRevokeReason("")
+              setRevoking(grant)
+            }}
+          >
+            Revoke
+          </Button>
+        ),
+    },
+  ]
+
   return (
     <Page>
       <PageHeader
@@ -97,6 +176,21 @@ export function DiscountsPage() {
         )}
       </Card>
 
+      <Card title="Student discount grants" description="Revoking a grant affects future invoices; issued invoices remain unchanged.">
+        {grants.isLoading ? (
+          <Loading />
+        ) : grants.isError ? (
+          <ErrorBanner error={grants.error} onRetry={() => grants.refetch()} />
+        ) : (
+          <Table
+            columns={grantColumns}
+            rows={grants.data ?? []}
+            keyOf={(grant) => grant.id}
+            empty={<EmptyState title="No student discounts granted yet" />}
+          />
+        )}
+      </Card>
+
       <Card title="How discounts work">
         <ul className="list-disc space-y-1.5 pl-5 text-sm text-slate-600">
           <li>
@@ -121,6 +215,41 @@ export function DiscountsPage() {
 
       <CreateDiscountModal open={creating} onClose={() => setCreating(false)} />
       <AssignDiscountModal open={assigning} onClose={() => setAssigning(false)} />
+      <ConfirmDialog
+        open={revoking !== null}
+        title="Revoke student discount"
+        confirmLabel="Revoke discount"
+        loading={revokeMutation.isPending}
+        error={revokeMutation.error}
+        onCancel={() => {
+          revokeMutation.reset()
+          setRevoking(null)
+        }}
+        onConfirm={() => {
+          if (revoking && revokeReason.trim()) {
+            revokeMutation.mutate(
+              { grantId: revoking.id, reason: revokeReason.trim() },
+              { onSuccess: () => setRevoking(null) },
+            )
+          }
+        }}
+      >
+        <p>
+          Revoke the grant of{" "}
+          <strong>{discountNames.get(revoking?.discountId ?? "") ?? "this discount"}</strong>
+          ? This does not change any invoice that has already been issued.
+        </p>
+        <Field label="Reason" htmlFor="discount-revoke-reason" required>
+          <Input
+            id="discount-revoke-reason"
+            value={revokeReason}
+            onChange={(event) => setRevokeReason(event.target.value)}
+            required
+            maxLength={500}
+            placeholder="Explain why this discount is being revoked"
+          />
+        </Field>
+      </ConfirmDialog>
     </Page>
   )
 }

@@ -47,6 +47,18 @@ impl StudentFeeRepository for SqliteStudentFeeRepository<'_> {
         Ok(())
     }
 
+    fn find_by_id(&self, fee_id: &str) -> AppResult<Option<StudentFee>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} FROM student_fees WHERE id = ?",
+            STUDENT_FEE_COLUMNS
+        ))?;
+        let mut rows = stmt.query(params![fee_id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(map_student_fee(row)?)),
+            None => Ok(None),
+        }
+    }
+
     fn list_pending(&self, student_id: &str, term_id: &str) -> AppResult<Vec<StudentFee>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {} FROM student_fees WHERE student_id = ? AND term_id = ? AND status = 'PENDING' \
@@ -65,6 +77,23 @@ impl StudentFeeRepository for SqliteStudentFeeRepository<'_> {
         self.conn.execute(
             "UPDATE student_fees SET status = 'BILLED', invoice_id = ? WHERE id = ?",
             params![invoice_id, fee_id],
+        )?;
+        Ok(())
+    }
+
+    fn mark_removed(&self, fee_id: &str) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE student_fees SET status = 'REMOVED' WHERE id = ? AND status = 'PENDING'",
+            params![fee_id],
+        )?;
+        Ok(())
+    }
+
+    fn reset_pending_for_invoice(&self, invoice_id: &str) -> AppResult<()> {
+        self.conn.execute(
+            "UPDATE student_fees SET status = 'PENDING', invoice_id = NULL \
+             WHERE invoice_id = ? AND status = 'BILLED'",
+            params![invoice_id],
         )?;
         Ok(())
     }

@@ -18,6 +18,10 @@ export function generateInvoiceBatch(
   return call<Invoice[]>("generate_invoice_batch", { input })
 }
 
+export function cancelInvoice(invoiceId: string, reason: string): Promise<Invoice> {
+  return call<Invoice>("cancel_invoice", { invoiceId, reason })
+}
+
 /**
  * Raises a SUPPLEMENTARY invoice for a student's pending ad-hoc fees.
  *

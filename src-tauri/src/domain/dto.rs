@@ -34,9 +34,31 @@ pub struct UpdateStudentStatusInput {
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 #[ts(export)]
+pub struct UpdateStudentInput {
+    pub student_id: String,
+    pub first_name: String,
+    pub last_name: String,
+    pub dob: String,
+    #[serde(default)]
+    pub gender: Option<String>,
+    pub admission_date: String,
+    #[serde(default)]
+    pub guardian_name: Option<String>,
+    #[serde(default)]
+    pub guardian_phone: Option<String>,
+    #[serde(default)]
+    pub guardian_email: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
 pub struct CreateClassInput {
-    pub name: String,
     pub grade_level: i32,
+    #[serde(default)]
+    pub stream: String,
+    pub academic_year: i32,
     pub capacity: i32,
 }
 
@@ -46,8 +68,10 @@ pub struct CreateClassInput {
 #[ts(export)]
 pub struct UpdateClassInput {
     pub id: String,
-    pub name: String,
     pub grade_level: i32,
+    #[serde(default)]
+    pub stream: String,
+    pub academic_year: i32,
     pub capacity: i32,
 }
 
@@ -188,6 +212,68 @@ pub struct StudentAccount {
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 #[ts(export)]
+pub struct PaymentMethodSummary {
+    pub payment_method: String,
+    pub payment_count: i64,
+    #[ts(as = "f64")]
+    pub amount_cents: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TermBalanceSummary {
+    pub term_id: String,
+    pub label: String,
+    pub invoice_count: i64,
+    #[ts(as = "f64")]
+    pub billed_cents: i64,
+    #[ts(as = "f64")]
+    pub paid_cents: i64,
+    #[ts(as = "f64")]
+    pub outstanding_cents: i64,
+    #[ts(as = "f64")]
+    pub overdue_cents: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FinanceReport {
+    pub start_date: String,
+    pub end_date: String,
+    pub payment_count: i64,
+    #[ts(as = "f64")]
+    pub payments_received_cents: i64,
+    #[ts(as = "f64")]
+    pub outstanding_cents: i64,
+    #[ts(as = "f64")]
+    pub overdue_cents: i64,
+    pub by_method: Vec<PaymentMethodSummary>,
+    pub by_term: Vec<TermBalanceSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AuditEntry {
+    pub id: i64,
+    pub actor_id: Option<String>,
+    pub actor_name: Option<String>,
+    pub entity: String,
+    pub entity_id: String,
+    pub action: String,
+    pub detail_json: Option<String>,
+    pub at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
 pub struct CreateDiscountInput {
     pub name: String,
     pub kind: String,
@@ -221,6 +307,7 @@ pub struct StudentStatement {
     pub term: Option<Term>,
     pub invoices: Vec<Invoice>,
     pub payments: Vec<Payment>,
+    pub ledger: Vec<AccountLedgerEntry>,
     #[ts(as = "f64")]
     pub total_billed_cents: i64,
     #[ts(as = "f64")]
@@ -229,6 +316,26 @@ pub struct StudentStatement {
     pub credit_cents: i64,
     #[ts(as = "f64")]
     pub balance_cents: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AccountLedgerEntry {
+    pub id: String,
+    pub date: String,
+    pub entry_type: String,
+    pub reference: String,
+    pub description: String,
+    #[ts(as = "f64")]
+    pub debit_cents: i64,
+    #[ts(as = "f64")]
+    pub credit_cents: i64,
+    #[ts(as = "f64")]
+    pub balance_cents: i64,
+    pub invoice_id: Option<String>,
+    pub payment_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -254,4 +361,73 @@ pub struct AppInfo {
     pub student_count: i64,
     #[ts(as = "f64")]
     pub invoice_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct MoveStudentInput {
+    pub student_id: String,
+    pub term_id: String,
+    pub class_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PromotionEntryInput {
+    pub student_id: String,
+    pub outcome: String,
+    #[serde(default)]
+    pub to_class_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ApplyPromotionInput {
+    pub from_year: i32,
+    pub to_year: i32,
+    pub entries: Vec<PromotionEntryInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PromotionCandidate {
+    pub student_id: String,
+    pub student_number: String,
+    pub first_name: String,
+    pub last_name: String,
+    pub from_class_id: String,
+    pub from_class_name: String,
+    pub from_grade_level: i32,
+    pub from_stream: String,
+    pub suggested_outcome: String,
+    pub suggested_class_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PromotionPreview {
+    pub from_year: i32,
+    pub to_year: i32,
+    pub term_ready: bool,
+    pub candidates: Vec<PromotionCandidate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PromotionResult {
+    pub promoted: i32,
+    pub repeated: i32,
+    pub graduated: i32,
 }

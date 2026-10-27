@@ -19,11 +19,16 @@ export interface ReceiptDocumentProps {
  * single column, because that is all a thermal printer can lay out.
  */
 export function ReceiptDocument(props: ReceiptDocumentProps) {
-  const allocatedCents = props.allocations.reduce(
+  const activeAllocations = props.allocations.filter(
+    (allocation) => !allocation.reversedAt,
+  )
+  const allocatedCents = activeAllocations.reduce(
     (total, allocation) => total + allocation.amountCents,
     0,
   )
-  const creditCents = props.payment.amountCents - allocatedCents
+  const creditCents = props.payment.reversedAt
+    ? 0
+    : props.payment.amountCents - allocatedCents
 
   return (
     <div
@@ -53,6 +58,15 @@ export function ReceiptDocument(props: ReceiptDocumentProps) {
         </div>
       </div>
 
+      {props.payment.reversedAt ? (
+        <div className="mt-3 border border-rose-300 bg-rose-50 p-2 text-center text-[11px] font-bold text-rose-800">
+          REVERSED {props.payment.reversedAt.slice(0, 10)}
+          {props.payment.reversalReason
+            ? ` - ${props.payment.reversalReason}`
+            : ""}
+        </div>
+      ) : null}
+
       {props.allocations.length > 0 ? (
         <div className="mt-3 border-t border-dashed border-slate-400 pt-2">
           <p className="text-[10px] font-semibold uppercase tracking-wide">
@@ -67,7 +81,13 @@ export function ReceiptDocument(props: ReceiptDocumentProps) {
                 <span className="font-mono">
                   {props.invoiceNumbers[allocation.invoiceId] ?? allocation.invoiceId}
                 </span>
-                <span className="font-medium">
+                <span
+                  className={
+                    allocation.reversedAt
+                      ? "text-rose-700 line-through"
+                      : "font-medium"
+                  }
+                >
                   {formatMoney(allocation.amountCents)}
                 </span>
               </div>
@@ -87,7 +107,9 @@ export function ReceiptDocument(props: ReceiptDocumentProps) {
 
       <div className="mt-3 border-t border-slate-400 pt-2">
         <div className="flex items-baseline justify-between text-sm">
-          <span className="font-semibold">TOTAL PAID</span>
+          <span className="font-semibold">
+            {props.payment.reversedAt ? "ORIGINAL AMOUNT" : "TOTAL PAID"}
+          </span>
           <span className="font-bold">{formatMoney(props.payment.amountCents)}</span>
         </div>
       </div>

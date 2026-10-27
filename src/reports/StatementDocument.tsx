@@ -1,6 +1,7 @@
 import type { Invoice } from "../types/schema/Invoice"
 import type { Payment } from "../types/schema/Payment"
 import type { Term } from "../types/schema/Term"
+import type { AccountLedgerEntry } from "../types/schema/AccountLedgerEntry"
 import { formatMoney } from "../lib/money"
 import { BankDetails, DocumentFooter, SchoolLetterhead } from "./SchoolBlocks"
 
@@ -10,6 +11,7 @@ export interface StatementDocumentProps {
   term: Term | null
   invoices: Invoice[]
   payments: Payment[]
+  ledger: AccountLedgerEntry[]
   totalBilledCents: number
   totalPaidCents: number
   creditCents: number
@@ -49,6 +51,46 @@ export function StatementDocument(props: StatementDocumentProps) {
 
       <section className="mt-6">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Account ledger
+        </h2>
+        {props.ledger.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">No account activity.</p>
+        ) : (
+          <table className="mt-2 w-full text-xs">
+            <thead>
+              <tr className="border-b border-slate-300 text-left uppercase tracking-wide text-slate-500">
+                <th className="py-1.5">Date</th>
+                <th className="py-1.5">Reference</th>
+                <th className="py-1.5">Description</th>
+                <th className="py-1.5 text-right">Debit</th>
+                <th className="py-1.5 text-right">Credit</th>
+                <th className="py-1.5 text-right">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {props.ledger.map((entry) => (
+                <tr key={entry.id} className="border-b border-slate-100">
+                  <td className="py-1.5">{entry.date}</td>
+                  <td className="py-1.5 font-mono">{entry.reference}</td>
+                  <td className="py-1.5">{entry.description}</td>
+                  <td className="py-1.5 text-right">
+                    {entry.debitCents > 0 ? formatMoney(entry.debitCents) : "-"}
+                  </td>
+                  <td className="py-1.5 text-right">
+                    {entry.creditCents > 0 ? formatMoney(entry.creditCents) : "-"}
+                  </td>
+                  <td className="py-1.5 text-right font-semibold">
+                    {formatMoney(entry.balanceCents)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <section className="mt-6">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Invoices
         </h2>
         {props.invoices.length === 0 ? (
@@ -60,6 +102,7 @@ export function StatementDocument(props: StatementDocumentProps) {
                 <th className="py-1.5">Invoice</th>
                 <th className="py-1.5">Type</th>
                 <th className="py-1.5">Due</th>
+                <th className="py-1.5">Status</th>
                 <th className="py-1.5 text-right">Total</th>
                 <th className="py-1.5 text-right">Balance</th>
               </tr>
@@ -74,11 +117,16 @@ export function StatementDocument(props: StatementDocumentProps) {
                     {invoice.kind === "SUPPLEMENTARY" ? "Supplementary" : "Term"}
                   </td>
                   <td className="py-1.5">{invoice.dueDate}</td>
+                  <td className="py-1.5">{invoice.status}</td>
                   <td className="py-1.5 text-right">
                     {formatMoney(invoice.totalCents)}
                   </td>
                   <td className="py-1.5 text-right">
-                    {formatMoney(invoice.totalCents - invoice.paidCents)}
+                    {formatMoney(
+                      invoice.status === "CANCELLED"
+                        ? 0
+                        : invoice.totalCents - invoice.paidCents,
+                    )}
                   </td>
                 </tr>
               ))}
@@ -139,7 +187,14 @@ export function StatementDocument(props: StatementDocumentProps) {
               </td>
             </tr>
             <tr>
-              <td className="py-1">Credit on account</td>
+              <td className="py-1">
+                Credit on account
+                {props.term ? (
+                  <span className="block text-[10px] text-slate-500">
+                    Not applied to this term
+                  </span>
+                ) : null}
+              </td>
               <td className="py-1 text-right font-medium">
                 {formatMoney(props.creditCents)}
               </td>

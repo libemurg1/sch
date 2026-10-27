@@ -4,12 +4,19 @@ import type { CreateClassInput } from "../types/schema/CreateClassInput"
 import type { CreateTermInput } from "../types/schema/CreateTermInput"
 import type { Enrollment } from "../types/schema/Enrollment"
 import type { EnrollStudentInput } from "../types/schema/EnrollStudentInput"
+import type { Grade } from "../types/schema/Grade"
+import type { MoveStudentInput } from "../types/schema/MoveStudentInput"
 import type { Term } from "../types/schema/Term"
 import type { UpdateClassInput } from "../types/schema/UpdateClassInput"
 import type { UpdateTermInput } from "../types/schema/UpdateTermInput"
 
-export function listClasses(): Promise<Class[]> {
-  return call<Class[]>("list_classes")
+/** All classes, or only the classes that belong to `year`. */
+export function listClasses(year?: number): Promise<Class[]> {
+  return call<Class[]>("list_classes", { year: year ?? null })
+}
+
+export function listGrades(): Promise<Grade[]> {
+  return call<Grade[]>("list_grades")
 }
 
 export function createClass(input: CreateClassInput): Promise<Class> {
@@ -57,6 +64,15 @@ export function listEnrollments(
   return call<Enrollment[]>("list_enrollments", { classId, termId })
 }
 
+export function listEnrollmentsByTerm(termId: string): Promise<Enrollment[]> {
+  return call<Enrollment[]>("list_enrollments_by_term", { termId })
+}
+
 export function listStudentEnrollments(studentId: string): Promise<Enrollment[]> {
   return call<Enrollment[]>("list_student_enrollments", { studentId })
+}
+
+/** Moves a student to another class (stream) within the same term. */
+export function moveStudent(input: MoveStudentInput): Promise<Enrollment> {
+  return call<Enrollment>("move_student", { input })
 }

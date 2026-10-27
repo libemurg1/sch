@@ -1,5 +1,10 @@
-import { useState } from "react"
-import { useClasses, useDeleteClass } from "../../api/queries"
+import { useEffect, useMemo, useState } from "react"
+import {
+  useActiveTerm,
+  useClasses,
+  useDeleteClass,
+  useGrades,
+} from "../../api/queries"
 import {
   Button,
   Card,
@@ -9,18 +14,48 @@ import {
   Loading,
   PageHeader,
   Table,
+  YearSelect,
   type Column,
 } from "../../components"
 import { Page } from "../../app/AppShell"
+import { ALL_YEARS, collectYears, defaultYear } from "../../lib/years"
 import type { Class } from "../../types/schema/Class"
 import { CreateClassModal } from "./CreateClassModal"
 
 export function ClassesPage() {
   const classes = useClasses()
+  const grades = useGrades()
+  const activeTerm = useActiveTerm()
+  const [year, setYear] = useState("")
   const [addingClass, setAddingClass] = useState(false)
   const [editingClass, setEditingClass] = useState<Class | null>(null)
   const [deletingClass, setDeletingClass] = useState<Class | null>(null)
   const removeClass = useDeleteClass()
+
+  const years = useMemo(
+    () =>
+      collectYears([
+        ...(classes.data ?? []).map((klass) => klass.academicYear),
+        activeTerm.data?.year,
+      ]),
+    [classes.data, activeTerm.data],
+  )
+
+  useEffect(() => {
+    if (year !== "") {
+      return
+    }
+    if (classes.isLoading || activeTerm.isLoading) {
+      return
+    }
+    setYear(defaultYear(activeTerm.data?.year, years))
+  }, [year, classes.isLoading, activeTerm.isLoading, activeTerm.data, years])
+
+  const allClasses = classes.data ?? []
+  const rows =
+    year === ALL_YEARS || year === ""
+      ? allClasses
+      : allClasses.filter((klass) => klass.academicYear === Number(year))
 
   const classColumns: Column<Class>[] = [
     {
@@ -33,8 +68,21 @@ export function ClassesPage() {
     {
       key: "grade",
       header: "Grade",
+      render: (klass) =>
+        grades.data?.find((grade) => grade.level === klass.gradeLevel)?.name ??
+        klass.gradeLevel,
+    },
+    {
+      key: "stream",
+      header: "Stream",
       hideOnSmall: true,
-      render: (klass) => klass.gradeLevel,
+      render: (klass) => klass.stream || "-",
+    },
+    {
+      key: "year",
+      header: "Year",
+      hideOnSmall: true,
+      render: (klass) => klass.academicYear,
     },
     {
       key: "capacity",
@@ -75,7 +123,7 @@ export function ClassesPage() {
     <Page>
       <PageHeader
         title="Classes"
-        description="Manage the classes students can be enrolled into."
+        description="Classes are grouped by grade, stream and academic year."
       />
 
       <Card
@@ -86,20 +134,33 @@ export function ClassesPage() {
           </Button>
         }
       >
+        <div className="mb-4 flex flex-wrap gap-3">
+          <YearSelect
+            id="class-year-filter"
+            value={year}
+            onChange={setYear}
+            years={years}
+          />
+        </div>
+
         {classes.isLoading ? (
           <Loading />
         ) : classes.isError ? (
           <ErrorBanner error={classes.error} onRetry={() => classes.refetch()} />
-        ) : (classes.data ?? []).length === 0 ? (
+        ) : rows.length === 0 ? (
           <EmptyState
-            title="No classes yet"
-            description="Create a classroom grouping before enrolling students."
+            title={allClasses.length === 0 ? "No classes yet" : "No classes in this year"}
+            description={
+              allClasses.length === 0
+                ? "Create a classroom grouping before enrolling students."
+                : "Choose another year or add a class for this year."
+            }
             action={<Button onClick={() => setAddingClass(true)}>Add class</Button>}
           />
         ) : (
           <Table
             columns={classColumns}
-            rows={classes.data ?? []}
+            rows={rows}
             keyOf={(klass) => klass.id}
           />
         )}

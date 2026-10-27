@@ -50,6 +50,9 @@ pub fn calculate(
     let mut fixed_lines: Vec<DiscountLine> = Vec::new();
 
     for granted in student_discounts {
+        if granted.revoked_at.is_some() {
+            continue;
+        }
         let Some(definition) = discount_definitions
             .iter()
             .find(|definition| definition.id == granted.discount_id)
@@ -237,6 +240,9 @@ mod tests {
             target_fee_item_id: target_fee_item_id.map(|id| id.to_string()),
             target_student_fee_id: None,
             reason: None,
+            revoked_at: None,
+            revoked_by: None,
+            revoke_reason: None,
         }
     }
 
@@ -253,12 +259,24 @@ mod tests {
     }
 
     #[test]
+    fn revoked_grants_do_not_apply_to_future_invoices() {
+        let charges = vec![charge("tuition", 10_000, true)];
+        let mut grant = grant("d1", None);
+        grant.revoked_at = Some("2026-01-01T00:00:00Z".to_string());
+        let lines = calculate(&charges, &[grant], &[discount("d1", "PERCENT", 1000)]);
+        assert!(lines.is_empty());
+    }
+
+    #[test]
     fn percentages_do_not_compound() {
         let charges = vec![charge("tuition", 10_000, true)];
         let lines = calculate(
             &charges,
             &[grant("d1", None), grant("d2", None)],
-            &[discount("d1", "PERCENT", 1000), discount("d2", "PERCENT", 1000)],
+            &[
+                discount("d1", "PERCENT", 1000),
+                discount("d2", "PERCENT", 1000),
+            ],
         );
         let total: i64 = lines.iter().map(|line| line.amount_cents).sum();
         assert_eq!(total, -2_000);
@@ -270,7 +288,10 @@ mod tests {
         let lines = calculate(
             &charges,
             &[grant("d1", None), grant("d2", None)],
-            &[discount("d1", "PERCENT", 8000), discount("d2", "PERCENT", 8000)],
+            &[
+                discount("d1", "PERCENT", 8000),
+                discount("d2", "PERCENT", 8000),
+            ],
         );
         let total: i64 = lines.iter().map(|line| line.amount_cents).sum();
         assert_eq!(total, -10_000);
@@ -293,7 +314,10 @@ mod tests {
         let lines = calculate(
             &charges,
             &[grant("d1", None), grant("d2", None)],
-            &[discount("d1", "FIXED", 5_000), discount("d2", "FIXED", 5_000)],
+            &[
+                discount("d1", "FIXED", 5_000),
+                discount("d2", "FIXED", 5_000),
+            ],
         );
         let total: i64 = lines.iter().map(|line| -line.amount_cents).sum();
         assert_eq!(total, 1_000);

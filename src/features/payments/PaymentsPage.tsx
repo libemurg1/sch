@@ -6,13 +6,16 @@ import {
   usePaymentAllocations,
   usePayments,
   useRecordPayment,
+  useReversePayment,
   useStudentAccount,
   useStudents,
   useUsers,
 } from "../../api/queries"
 import {
+  Badge,
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorBanner,
   Field,
@@ -43,6 +46,7 @@ export function PaymentsPage() {
   const payments = usePayments()
   const users = useUsers()
   const mutation = useRecordPayment()
+  const reverseMutation = useReversePayment()
   const { user } = useSession()
 
   const [studentId, setStudentId] = useState("")
@@ -51,6 +55,8 @@ export function PaymentsPage() {
   const [method, setMethod] = useState("CASH")
   const [reference, setReference] = useState("")
   const [preview, setPreview] = useState<Payment | null>(null)
+  const [reversing, setReversing] = useState<Payment | null>(null)
+  const [reversalReason, setReversalReason] = useState("")
 
   const account = useStudentAccount(studentId || undefined)
 
@@ -152,13 +158,30 @@ export function PaymentsPage() {
       header: "",
       align: "right",
       render: (payment) => (
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => openPreview(payment)}
-        >
-          Print receipt
-        </Button>
+        <div className="flex justify-end gap-2">
+          {payment.reversedAt ? (
+            <Badge tone="danger">Reversed</Badge>
+          ) : (
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={() => {
+                reverseMutation.reset()
+                setReversalReason("")
+                setReversing(payment)
+              }}
+            >
+              Reverse
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => openPreview(payment)}
+          >
+            Print receipt
+          </Button>
+        </div>
       ),
     },
   ]
@@ -458,6 +481,47 @@ export function PaymentsPage() {
           )}
         </Card>
       </div>
+
+      <ConfirmDialog
+        open={reversing !== null}
+        title="Reverse payment"
+        confirmLabel="Reverse payment"
+        loading={reverseMutation.isPending}
+        error={reverseMutation.error}
+        onCancel={() => {
+          reverseMutation.reset()
+          setReversing(null)
+        }}
+        onConfirm={() => {
+          if (reversing && reversalReason.trim()) {
+            reverseMutation.mutate(
+              { paymentId: reversing.id, reason: reversalReason.trim() },
+              {
+                onSuccess: () => {
+                  setReversing(null)
+                  setReversalReason("")
+                },
+              },
+            )
+          }
+        }}
+      >
+        <p>
+          Reversing receipt <strong>{reversing?.receiptNumber}</strong> removes
+          its allocations and recalculates the student's account. This cannot be
+          undone.
+        </p>
+        <Field label="Reason" htmlFor="payment-reversal-reason" required>
+          <Input
+            id="payment-reversal-reason"
+            value={reversalReason}
+            onChange={(event) => setReversalReason(event.target.value)}
+            required
+            maxLength={500}
+            placeholder="Explain why this payment is being reversed"
+          />
+        </Field>
+      </ConfirmDialog>
 
       {preview ? (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 p-4 sm:p-6 print:static print:overflow-visible print:bg-white print:p-0">

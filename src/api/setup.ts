@@ -16,6 +16,14 @@ export function listBackups(): Promise<string[]> {
   return call<string[]>("list_backups")
 }
 
+/** Copies one application backup into an existing user-selected folder. */
+export function exportBackup(
+  backupPath: string,
+  destinationDirectory: string,
+): Promise<string> {
+  return call<string>("export_backup", { backupPath, destinationDirectory })
+}
+
 /**
  * Restores the database from a backup file.
  *

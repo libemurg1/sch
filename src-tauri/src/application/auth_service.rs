@@ -25,11 +25,7 @@ impl AuthService {
 
     /// Creates a user. The first account may be created without authentication
     /// (that is the bootstrap step); afterwards `authenticated` must be true.
-    pub fn create_user(
-        db: &Db,
-        input: &CreateUserInput,
-        authenticated: bool,
-    ) -> AppResult<User> {
+    pub fn create_user(db: &Db, input: &CreateUserInput, authenticated: bool) -> AppResult<User> {
         let username = validate_username(&input.username)?;
         let display_name = validate_display_name(&input.display_name)?;
         validate_password(&input.password)?;
@@ -106,11 +102,7 @@ impl AuthService {
         })
     }
 
-    pub fn change_password(
-        db: &Db,
-        user_id: &str,
-        input: &ChangePasswordInput,
-    ) -> AppResult<()> {
+    pub fn change_password(db: &Db, user_id: &str, input: &ChangePasswordInput) -> AppResult<()> {
         validate_password(&input.new_password)?;
         let new_password = input.new_password.clone();
 
@@ -178,6 +170,10 @@ impl AuthService {
             }
             conn.execute(
                 "UPDATE payments SET created_by = NULL WHERE created_by = ?",
+                [user_id],
+            )?;
+            conn.execute(
+                "UPDATE audit_log SET actor_id = NULL WHERE actor_id = ?",
                 [user_id],
             )?;
             repo.delete(user_id)
@@ -256,11 +252,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn temp_db(name: &str) -> (PathBuf, Db) {
-        let dir = std::env::temp_dir().join(format!(
-            "sfs-auth-test-{}-{}",
-            name,
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sfs-auth-test-{}-{}", name, std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let db = Db::open(&dir).unwrap();
@@ -386,8 +379,8 @@ mod tests {
         let (dir, db) = temp_db("rename");
         let user = AuthService::create_user(&db, &admin_input(), false).unwrap();
 
-        let updated = AuthService::update_user(&db, &user.id, "head.teacher", "Head Teacher")
-            .unwrap();
+        let updated =
+            AuthService::update_user(&db, &user.id, "head.teacher", "Head Teacher").unwrap();
         assert_eq!(updated.username, "head.teacher");
         assert_eq!(updated.display_name, "Head Teacher");
         assert!(AuthService::login(&db, "head.teacher", "correct horse").is_ok());
@@ -404,8 +397,7 @@ mod tests {
         )
         .unwrap();
 
-        let error =
-            AuthService::update_user(&db, &clerk.id, "head.teacher", "Clerk").unwrap_err();
+        let error = AuthService::update_user(&db, &clerk.id, "head.teacher", "Clerk").unwrap_err();
         assert_eq!(error.code, "CONFLICT");
 
         AuthService::delete_user(&db, &clerk.id).unwrap();

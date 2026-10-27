@@ -1,13 +1,24 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { z } from "zod"
-import { useCreateClass, useUpdateClass } from "../../api/queries"
-import { Button, ErrorBanner, Field, Input, Modal } from "../../components"
+import {
+  useActiveTerm,
+  useClasses,
+  useCreateClass,
+  useGrades,
+  useUpdateClass,
+} from "../../api/queries"
+import { Button, ErrorBanner, Field, Input, Modal, Select } from "../../components"
 import type { Class } from "../../types/schema/Class"
 import type { CreateClassInput } from "../../types/schema/CreateClassInput"
 
 const schema = z.object({
-  name: z.string().trim().min(1, "Class name is required"),
-  gradeLevel: z.coerce.number().int().min(0, "Grade level cannot be negative"),
+  gradeLevel: z.coerce.number().int("Choose a grade"),
+  stream: z.string().trim().max(40, "The stream can be 40 characters or fewer"),
+  academicYear: z.coerce
+    .number()
+    .int()
+    .min(2000, "Enter a valid year")
+    .max(2100, "Enter a valid year"),
   capacity: z.coerce
     .number()
     .int()
@@ -16,7 +27,14 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>
 
-const EMPTY: FormValues = { name: "", gradeLevel: 0, capacity: 30 }
+const currentYear = new Date().getFullYear()
+
+const EMPTY: FormValues = {
+  gradeLevel: 1,
+  stream: "",
+  academicYear: currentYear,
+  capacity: 30,
+}
 
 export function CreateClassModal({
   open,
@@ -33,26 +51,49 @@ export function CreateClassModal({
   )
   const create = useCreateClass()
   const update = useUpdateClass()
+  const grades = useGrades()
+  const classes = useClasses()
+  const activeTerm = useActiveTerm()
+
+  const years = useMemo(() => {
+    const set = new Set<number>((classes.data ?? []).map((c) => c.academicYear))
+    if (activeTerm.data) {
+      set.add(activeTerm.data.year)
+    }
+    set.add(currentYear)
+    set.add(currentYear + 1)
+    return [...set].sort((a, b) => a - b)
+  }, [classes.data, activeTerm.data])
 
   useEffect(() => {
     if (open) {
       setValues(
         editing
           ? {
-              name: editing.name,
               gradeLevel: editing.gradeLevel,
+              stream: editing.stream,
+              academicYear: editing.academicYear,
               capacity: editing.capacity,
             }
-          : EMPTY,
+          : {
+              ...EMPTY,
+              academicYear: activeTerm.data?.year ?? currentYear,
+            },
       )
       setErrors({})
       create.reset()
       update.reset()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editing])
+  }, [open, editing, activeTerm.data?.year])
 
   const mutation = editing ? update : create
+  const grade = grades.data?.find((item) => item.level === values.gradeLevel)
+  const previewName = grade
+    ? values.stream.trim()
+      ? `${grade.name} ${values.stream.trim()}`
+      : grade.name
+    : ""
 
   const submit = () => {
     const parsed = schema.safeParse(values)
@@ -69,8 +110,9 @@ export function CreateClassModal({
     }
 
     const input: CreateClassInput = {
-      name: parsed.data.name,
       gradeLevel: parsed.data.gradeLevel,
+      stream: parsed.data.stream.trim(),
+      academicYear: parsed.data.academicYear,
       capacity: parsed.data.capacity,
     }
 
@@ -88,8 +130,8 @@ export function CreateClassModal({
       title={editing ? "Edit class" : "Add a class"}
       description={
         editing
-          ? "Renaming a class does not change its enrolments or invoices."
-          : undefined
+          ? "Classes belong to one academic year. Names are built from the grade and stream."
+          : "Each year has its own copy of the classes, so history stays intact."
       }
       footer={
         <>
@@ -104,29 +146,15 @@ export function CreateClassModal({
     >
       <div className="space-y-4">
         {mutation.isError ? <ErrorBanner error={mutation.error} /> : null}
-        <Field label="Name" htmlFor="class-name" required error={errors.name}>
-          <Input
-            id="class-name"
-            value={values.name}
-            placeholder="Grade 5 - Blue"
-            onChange={(event) =>
-              setValues((current) => ({ ...current, name: event.target.value }))
-            }
-            error={errors.name}
-          />
-        </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <Field
-            label="Grade level"
-            htmlFor="grade-level"
+            label="Grade"
+            htmlFor="class-grade"
             required
             error={errors.gradeLevel}
-            hint="Nursery is 0, then Grade 1 is 1 and so on."
           >
-            <Input
-              id="grade-level"
-              type="number"
-              min={0}
+            <Select
+              id="class-grade"
               value={values.gradeLevel}
               onChange={(event) =>
                 setValues((current) => ({
@@ -135,30 +163,85 @@ export function CreateClassModal({
                 }))
               }
               error={errors.gradeLevel}
-            />
+            >
+              {(grades.data ?? []).map((item) => (
+                <option key={item.level} value={item.level}>
+                  {item.name}
+                </option>
+              ))}
+            </Select>
           </Field>
           <Field
-            label="Capacity"
-            htmlFor="capacity"
-            required
-            error={errors.capacity}
-            hint="How many students the class can hold."
+            label="Stream"
+            htmlFor="class-stream"
+            error={errors.stream}
+            hint="Optional, e.g. Blue."
           >
             <Input
-              id="capacity"
-              type="number"
-              min={1}
-              value={values.capacity}
+              id="class-stream"
+              value={values.stream}
+              placeholder="Blue"
               onChange={(event) =>
                 setValues((current) => ({
                   ...current,
-                  capacity: Number(event.target.value),
+                  stream: event.target.value,
                 }))
               }
-              error={errors.capacity}
+              error={errors.stream}
             />
           </Field>
+          <Field
+            label="Academic year"
+            htmlFor="class-year"
+            required
+            error={errors.academicYear}
+          >
+            <Select
+              id="class-year"
+              value={values.academicYear}
+              onChange={(event) =>
+                setValues((current) => ({
+                  ...current,
+                  academicYear: Number(event.target.value),
+                }))
+              }
+              error={errors.academicYear}
+            >
+              {years.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </div>
+        <Field
+          label="Capacity"
+          htmlFor="capacity"
+          required
+          error={errors.capacity}
+          hint="How many students the class can hold."
+        >
+          <Input
+            id="capacity"
+            type="number"
+            min={1}
+            value={values.capacity}
+            onChange={(event) =>
+              setValues((current) => ({
+                ...current,
+                capacity: Number(event.target.value),
+              }))
+            }
+            error={errors.capacity}
+          />
+        </Field>
+        <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+          Class name:{" "}
+          <span className="font-medium text-slate-900">
+            {previewName || "—"}
+          </span>
+        </p>
       </div>
     </Modal>
   )

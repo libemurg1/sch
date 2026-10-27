@@ -15,7 +15,8 @@ impl<'c> SqliteInvoiceRepository<'c> {
 }
 
 const INVOICE_COLUMNS: &str = "id, invoice_number, kind, student_id, term_id, fee_structure_id, \
-     issue_date, due_date, status, subtotal_cents, discount_cents, total_cents, paid_cents";
+     issue_date, due_date, status, subtotal_cents, discount_cents, total_cents, paid_cents, \
+     cancelled_at, cancelled_by, cancel_reason";
 
 fn map_invoice(row: &rusqlite::Row<'_>) -> rusqlite::Result<Invoice> {
     Ok(Invoice {
@@ -32,6 +33,9 @@ fn map_invoice(row: &rusqlite::Row<'_>) -> rusqlite::Result<Invoice> {
         discount_cents: row.get(10)?,
         total_cents: row.get(11)?,
         paid_cents: row.get(12)?,
+        cancelled_at: row.get(13)?,
+        cancelled_by: row.get(14)?,
+        cancel_reason: row.get(15)?,
     })
 }
 
@@ -167,9 +171,10 @@ impl InvoiceRepository for SqliteInvoiceRepository<'_> {
     }
 
     fn find_by_id(&self, id: &str) -> AppResult<Option<Invoice>> {
-        let mut stmt = self
-            .conn
-            .prepare(&format!("SELECT {} FROM invoices WHERE id = ?", INVOICE_COLUMNS))?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} FROM invoices WHERE id = ?",
+            INVOICE_COLUMNS
+        ))?;
         let mut rows = stmt.query(params![id])?;
         match rows.next()? {
             Some(row) => Ok(Some(map_invoice(row)?)),
@@ -213,6 +218,67 @@ impl InvoiceRepository for SqliteInvoiceRepository<'_> {
                 params![paid, status, invoice_id],
             )?;
 
+            self.find_by_id(invoice_id)?
+                .ok_or_else(|| AppError::not_found("Invoice", invoice_id))
+        })
+    }
+
+    fn unapply_payment(&self, invoice_id: &str, amount_cents: i64) -> AppResult<Invoice> {
+        with_optional_transaction(self.conn, || {
+            let invoice = self
+                .find_by_id(invoice_id)?
+                .ok_or_else(|| AppError::not_found("Invoice", invoice_id))?;
+            let paid = invoice.paid_cents - amount_cents;
+            if paid < 0 {
+                return Err(AppError::conflict(format!(
+                    "Cannot remove {} from invoice {} because only {} is paid",
+                    amount_cents, invoice.invoice_number, invoice.paid_cents
+                )));
+            }
+            let status = if paid == 0 {
+                "UNPAID"
+            } else if paid < invoice.total_cents {
+                "PARTIAL"
+            } else {
+                "PAID"
+            };
+            self.conn.execute(
+                "UPDATE invoices SET paid_cents = ?, status = ? WHERE id = ?",
+                params![paid, status, invoice_id],
+            )?;
+            self.find_by_id(invoice_id)?
+                .ok_or_else(|| AppError::not_found("Invoice", invoice_id))
+        })
+    }
+
+    fn cancel(
+        &self,
+        invoice_id: &str,
+        actor_id: &str,
+        reason: &str,
+        at: &str,
+    ) -> AppResult<Invoice> {
+        with_optional_transaction(self.conn, || {
+            let invoice = self
+                .find_by_id(invoice_id)?
+                .ok_or_else(|| AppError::not_found("Invoice", invoice_id))?;
+            if invoice.status == "CANCELLED" {
+                return Err(AppError::conflict(format!(
+                    "Invoice {} is already cancelled",
+                    invoice.invoice_number
+                )));
+            }
+            if invoice.paid_cents != 0 {
+                return Err(AppError::conflict(format!(
+                    "Invoice {} still has {} applied to it",
+                    invoice.invoice_number, invoice.paid_cents
+                )));
+            }
+            self.conn.execute(
+                "UPDATE invoices SET status = 'CANCELLED', cancelled_at = ?, cancelled_by = ?, \
+                 cancel_reason = ? WHERE id = ?",
+                params![at, actor_id, reason, invoice_id],
+            )?;
             self.find_by_id(invoice_id)?
                 .ok_or_else(|| AppError::not_found("Invoice", invoice_id))
         })

@@ -1,16 +1,23 @@
-use crate::AppState;
 use crate::application::enrollment_service::EnrollmentService;
 use crate::domain::dto::{
-    CreateClassInput, CreateTermInput, EnrollStudentInput, UpdateClassInput, UpdateTermInput,
+    CreateClassInput, CreateTermInput, EnrollStudentInput, MoveStudentInput, UpdateClassInput,
+    UpdateTermInput,
 };
-use crate::domain::entities::{Class, Enrollment, Term};
+use crate::domain::entities::{Class, Enrollment, Grade, Term};
 use crate::domain::errors::AppResult;
+use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub fn list_classes(state: State<'_, AppState>) -> AppResult<Vec<Class>> {
+pub fn list_classes(state: State<'_, AppState>, year: Option<i32>) -> AppResult<Vec<Class>> {
     let _user = state.require_auth()?;
-    EnrollmentService::list_classes(&state.db)
+    EnrollmentService::list_classes(&state.db, year)
+}
+
+#[tauri::command]
+pub fn list_grades(state: State<'_, AppState>) -> AppResult<Vec<Grade>> {
+    let _user = state.require_auth()?;
+    EnrollmentService::list_grades(&state.db)
 }
 
 #[tauri::command]
@@ -29,6 +36,12 @@ pub fn update_class(state: State<'_, AppState>, input: UpdateClassInput) -> AppR
 pub fn delete_class(state: State<'_, AppState>, class_id: String) -> AppResult<()> {
     let _user = state.require_auth()?;
     EnrollmentService::delete_class(&state.db, &class_id)
+}
+
+#[tauri::command]
+pub fn move_student(state: State<'_, AppState>, input: MoveStudentInput) -> AppResult<Enrollment> {
+    let _user = state.require_auth()?;
+    EnrollmentService::move_student(&state.db, input)
 }
 
 #[tauri::command]
@@ -78,6 +91,15 @@ pub fn list_enrollments(
 ) -> AppResult<Vec<Enrollment>> {
     let _user = state.require_auth()?;
     EnrollmentService::list_by_class_term(&state.db, &class_id, &term_id)
+}
+
+#[tauri::command]
+pub fn list_enrollments_by_term(
+    state: State<'_, AppState>,
+    term_id: String,
+) -> AppResult<Vec<Enrollment>> {
+    let _user = state.require_auth()?;
+    EnrollmentService::list_by_term(&state.db, &term_id)
 }
 
 #[tauri::command]

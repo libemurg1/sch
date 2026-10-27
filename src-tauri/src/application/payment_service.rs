@@ -1,13 +1,16 @@
+use crate::application::audit_service::AuditService;
 use crate::application::credit_service::CreditService;
 use crate::application::{current_year, now_iso};
 use crate::domain::dto::RecordPaymentInput;
 use crate::domain::entities::{Payment, PaymentAllocation};
 use crate::domain::errors::{AppError, AppResult};
-use crate::domain::ports::PaymentRepository;
+use crate::domain::ports::{InvoiceRepository, PaymentRepository};
 use crate::infrastructure::db::Db;
+use crate::infrastructure::sqlite::invoice_repository::SqliteInvoiceRepository;
 use crate::infrastructure::sqlite::number_generator::NumberGenerator;
 use crate::infrastructure::sqlite::payment_repository::SqlitePaymentRepository;
 use crate::infrastructure::sqlite::unit_of_work::UnitOfWork;
+use serde_json::json;
 use uuid::Uuid;
 
 const PAYMENT_METHODS: [&str; 4] = ["CASH", "MOBILE_MONEY", "BANK_TRANSFER", "CHEQUE"];
@@ -45,14 +48,13 @@ impl PaymentService {
 
             if let Some(reference) = &input.reference_number {
                 if input.payment_method != "CASH" && !reference.trim().is_empty() {
-                    let existing: Option<i64> = conn
-                        .query_row(
-                            "SELECT COUNT(*) FROM payments WHERE payment_method = ? AND reference_number = ?",
-                            rusqlite::params![input.payment_method, reference.trim()],
-                            |row| row.get(0),
-                        )
-                        .ok();
-                    if existing.unwrap_or(0) > 0 {
+                    let existing: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM payments WHERE payment_method = ? \
+                         AND reference_number = ? AND reversed_at IS NULL",
+                        rusqlite::params![input.payment_method, reference.trim()],
+                        |row| row.get(0),
+                    )?;
+                    if existing > 0 {
                         return Err(AppError::conflict(format!(
                             "Reference {} has already been used for {}",
                             reference.trim(),
@@ -76,12 +78,72 @@ impl PaymentService {
                     .filter(|reference| !reference.is_empty()),
                 created_by: input.created_by,
                 created_at: now_iso(),
+                reversed_at: None,
+                reversed_by: None,
+                reversal_reason: None,
             };
 
             payments.create(&payment, &[])?;
             CreditService::apply_conn(conn, &payment.student_id)?;
+            AuditService::record(
+                conn,
+                payment.created_by.as_deref(),
+                "payment",
+                &payment.id,
+                "recorded",
+                json!({
+                    "receiptNumber": payment.receipt_number,
+                    "studentId": payment.student_id,
+                    "amountCents": payment.amount_cents,
+                    "paymentMethod": payment.payment_method,
+                    "paymentDate": payment.payment_date,
+                }),
+                &payment.created_at,
+            )?;
 
             Ok(payment)
+        })
+    }
+
+    pub fn reverse(db: &Db, payment_id: &str, actor_id: &str, reason: &str) -> AppResult<Payment> {
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(AppError::validation(
+                "A reason is required to reverse a payment",
+            ));
+        }
+
+        db.execute(|conn| {
+            let payments = SqlitePaymentRepository::new(conn);
+            let invoices = SqliteInvoiceRepository::new(conn);
+            let at = now_iso();
+            let payment = payments.mark_reversed(payment_id, actor_id, reason, &at)?;
+
+            for allocation in payments.list_allocations(payment_id)? {
+                if allocation.reversed_at.is_some() {
+                    continue;
+                }
+                payments.reverse_allocation(&allocation.id, reason, &at)?;
+                invoices.unapply_payment(&allocation.invoice_id, allocation.amount_cents)?;
+            }
+
+            CreditService::apply_conn(conn, &payment.student_id)?;
+            AuditService::record(
+                conn,
+                Some(actor_id),
+                "payment",
+                payment_id,
+                "reversed",
+                json!({
+                    "receiptNumber": payment.receipt_number,
+                    "amountCents": payment.amount_cents,
+                    "reason": reason,
+                }),
+                &at,
+            )?;
+            payments
+                .find_by_id(payment_id)?
+                .ok_or_else(|| AppError::not_found("Payment", payment_id))
         })
     }
 
@@ -97,10 +159,7 @@ impl PaymentService {
         db.with_conn(|conn| SqlitePaymentRepository::new(conn).find_by_id(id))
     }
 
-    pub fn list_allocations(
-        db: &Db,
-        payment_id: &str,
-    ) -> AppResult<Vec<PaymentAllocation>> {
+    pub fn list_allocations(db: &Db, payment_id: &str) -> AppResult<Vec<PaymentAllocation>> {
         db.with_conn(|conn| SqlitePaymentRepository::new(conn).list_allocations(payment_id))
     }
 }

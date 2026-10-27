@@ -1,0 +1,18 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Primary School",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "maximized": true,
+        "additionalBrowserArgs": "--remote-debugging-port=9222"
+      }
+    ]
+  }
+}

@@ -11,6 +11,7 @@ import { StudentDetailPage } from "../features/students/StudentDetailPage"
 import { EnrollmentPage } from "../features/enrollment/EnrollmentPage"
 import { ClassesPage } from "../features/enrollment/ClassesPage"
 import { TermsPage } from "../features/enrollment/TermsPage"
+import { PromotionPage } from "../features/enrollment/PromotionPage"
 import { FeeStructuresPage } from "../features/feeStructures/FeeStructuresPage"
 import { DiscountsPage } from "../features/discounts/DiscountsPage"
 import { BillingPage } from "../features/billing/BillingPage"
@@ -21,6 +22,7 @@ import { StatementsPage } from "../features/statements/StatementsPage"
 import { MaintenancePage } from "../features/maintenance/MaintenancePage"
 import { SettingsPage } from "../features/settings/SettingsPage"
 import { UsersPage } from "../features/settings/UsersPage"
+import { ReportsPage } from "../features/reports/ReportsPage"
 
 /**
  * The router uses hashes because the app is served from Tauri's own protocol,
@@ -39,6 +41,7 @@ export default function App() {
               <Route path="classes" element={<ClassesPage />} />
               <Route path="terms" element={<TermsPage />} />
               <Route path="enrollment" element={<EnrollmentPage />} />
+              <Route path="promotion" element={<PromotionPage />} />
               <Route path="fee-structures" element={<FeeStructuresPage />} />
               <Route path="discounts" element={<DiscountsPage />} />
               <Route path="billing" element={<BillingPage />} />
@@ -49,6 +52,7 @@ export default function App() {
               />
               <Route path="payments" element={<PaymentsPage />} />
               <Route path="statements" element={<StatementsPage />} />
+              <Route path="reports" element={<ReportsPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="users" element={<UsersPage />} />
               <Route path="maintenance" element={<MaintenancePage />} />

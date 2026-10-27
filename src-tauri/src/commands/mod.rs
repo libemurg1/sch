@@ -5,6 +5,8 @@ pub mod enrollment;
 pub mod fee_structures;
 pub mod payments;
 pub mod printing;
+pub mod promotion;
+pub mod reports;
 pub mod settings;
 pub mod setup;
 pub mod statements;

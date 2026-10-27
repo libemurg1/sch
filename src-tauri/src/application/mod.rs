@@ -1,3 +1,4 @@
+pub mod audit_service;
 pub mod auth_service;
 pub mod billing_service;
 pub mod credit_service;
@@ -6,6 +7,8 @@ pub mod discount_service;
 pub mod enrollment_service;
 pub mod fee_structure_service;
 pub mod payment_service;
+pub mod promotion_service;
+pub mod report_service;
 pub mod settings_service;
 pub mod student_service;
 

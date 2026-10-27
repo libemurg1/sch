@@ -1,6 +1,7 @@
+use crate::application::audit_service::AuditService;
 use crate::application::credit_service::CreditService;
 use crate::application::discount_calculator::{self, ChargeLine};
-use crate::application::current_year;
+use crate::application::{current_year, now_iso};
 use crate::domain::dto::{AssignStudentFeeInput, GenerateBatchInput, GenerateSupplementaryInput};
 use crate::domain::entities::{Invoice, InvoiceItem, StudentFee};
 use crate::domain::errors::{AppError, AppResult};
@@ -17,6 +18,7 @@ use crate::infrastructure::sqlite::invoice_repository::SqliteInvoiceRepository;
 use crate::infrastructure::sqlite::number_generator::NumberGenerator;
 use crate::infrastructure::sqlite::student_fee_repository::SqliteStudentFeeRepository;
 use crate::infrastructure::sqlite::unit_of_work::UnitOfWork;
+use serde_json::json;
 use uuid::Uuid;
 
 /// Use cases for raising invoices.
@@ -29,14 +31,18 @@ impl BillingService {
     ///
     /// The whole batch is a single transaction: either every student is
     /// invoiced or none is.
-    pub fn generate_batch(db: &Db, input: GenerateBatchInput) -> AppResult<Vec<Invoice>> {
+    pub fn generate_batch(
+        db: &Db,
+        input: GenerateBatchInput,
+        actor_id: &str,
+    ) -> AppResult<Vec<Invoice>> {
         if input.issue_date.trim().is_empty() || input.due_date.trim().is_empty() {
-            return Err(AppError::validation(
-                "Issue date and due date are required",
-            ));
+            return Err(AppError::validation("Issue date and due date are required"));
         }
         if input.due_date < input.issue_date {
-            return Err(AppError::validation("Due date cannot precede the issue date"));
+            return Err(AppError::validation(
+                "Due date cannot precede the issue date",
+            ));
         }
 
         db.execute(|conn| {
@@ -85,10 +91,8 @@ impl BillingService {
                     })
                     .collect();
 
-                let granted = discount_repository.list_for_student(
-                    &enrollment.student_id,
-                    &input.term_id,
-                )?;
+                let granted =
+                    discount_repository.list_for_student(&enrollment.student_id, &input.term_id)?;
 
                 let discount_lines =
                     discount_calculator::calculate(&charges, &granted, &active_discounts);
@@ -147,6 +151,9 @@ impl BillingService {
                     discount_cents,
                     total_cents,
                     paid_cents: 0,
+                    cancelled_at: None,
+                    cancelled_by: None,
+                    cancel_reason: None,
                 };
 
                 for item in items.iter_mut() {
@@ -155,6 +162,21 @@ impl BillingService {
 
                 invoices.create(&invoice)?;
                 invoices.create_items(&invoice.id, &items)?;
+                AuditService::record(
+                    conn,
+                    Some(actor_id),
+                    "invoice",
+                    &invoice.id,
+                    "created",
+                    json!({
+                        "invoiceNumber": invoice.invoice_number,
+                        "studentId": invoice.student_id,
+                        "termId": invoice.term_id,
+                        "totalCents": invoice.total_cents,
+                        "kind": invoice.kind,
+                    }),
+                    &now_iso(),
+                )?;
 
                 // Credit already paid into the account clears this new invoice.
                 CreditService::apply_conn(conn, &invoice.student_id)?;
@@ -174,6 +196,7 @@ impl BillingService {
     pub fn create_supplementary(
         db: &Db,
         input: GenerateSupplementaryInput,
+        actor_id: &str,
     ) -> AppResult<Option<Invoice>> {
         db.execute(|conn| {
             let invoices = SqliteInvoiceRepository::new(conn);
@@ -197,7 +220,8 @@ impl BillingService {
                 })
                 .collect();
 
-            let granted = discount_repository.list_for_student(&input.student_id, &input.term_id)?;
+            let granted =
+                discount_repository.list_for_student(&input.student_id, &input.term_id)?;
             let active_discounts = discount_repository.list_active()?;
             let percentage_only: Vec<_> = granted
                 .iter()
@@ -240,6 +264,9 @@ impl BillingService {
                 discount_cents,
                 total_cents,
                 paid_cents: 0,
+                cancelled_at: None,
+                cancelled_by: None,
+                cancel_reason: None,
             };
 
             let mut items: Vec<InvoiceItem> = charges
@@ -272,6 +299,21 @@ impl BillingService {
 
             invoices.create(&invoice)?;
             invoices.create_items(&invoice.id, &items)?;
+            AuditService::record(
+                conn,
+                Some(actor_id),
+                "invoice",
+                &invoice.id,
+                "created",
+                json!({
+                    "invoiceNumber": invoice.invoice_number,
+                    "studentId": invoice.student_id,
+                    "termId": invoice.term_id,
+                    "totalCents": invoice.total_cents,
+                    "kind": invoice.kind,
+                }),
+                &now_iso(),
+            )?;
 
             for fee in &pending {
                 student_fees.mark_billed(&fee.id, &invoice.id)?;
@@ -289,14 +331,16 @@ impl BillingService {
     /// The charge stays `PENDING` until it is billed on a supplementary
     /// invoice, which is how late fees and other one-off charges reach a
     /// student without re-running the whole class batch.
-    pub fn assign_student_fee(db: &Db, input: AssignStudentFeeInput) -> AppResult<StudentFee> {
+    pub fn assign_student_fee(
+        db: &Db,
+        input: AssignStudentFeeInput,
+        actor_id: &str,
+    ) -> AppResult<StudentFee> {
         if input.description.trim().is_empty() {
             return Err(AppError::validation("Description is required"));
         }
         if input.amount_cents <= 0 {
-            return Err(AppError::validation(
-                "Amount must be greater than zero",
-            ));
+            return Err(AppError::validation("Amount must be greater than zero"));
         }
 
         db.execute(|conn| {
@@ -314,7 +358,58 @@ impl BillingService {
             };
 
             student_fees.create(&fee)?;
+            AuditService::record(
+                conn,
+                Some(actor_id),
+                "student_fee",
+                &fee.id,
+                "created",
+                json!({
+                    "studentId": fee.student_id,
+                    "termId": fee.term_id,
+                    "description": fee.description,
+                    "amountCents": fee.amount_cents,
+                }),
+                &now_iso(),
+            )?;
             Ok(fee)
+        })
+    }
+
+    pub fn cancel_invoice(
+        db: &Db,
+        invoice_id: &str,
+        actor_id: &str,
+        reason: &str,
+    ) -> AppResult<Invoice> {
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(AppError::validation(
+                "A reason is required to cancel an invoice",
+            ));
+        }
+
+        db.execute(|conn| {
+            let invoices = SqliteInvoiceRepository::new(conn);
+            let student_fees = SqliteStudentFeeRepository::new(conn);
+            let at = now_iso();
+            let invoice = invoices.cancel(invoice_id, actor_id, reason, &at)?;
+            student_fees.reset_pending_for_invoice(invoice_id)?;
+            AuditService::record(
+                conn,
+                Some(actor_id),
+                "invoice",
+                invoice_id,
+                "cancelled",
+                json!({
+                    "invoiceNumber": invoice.invoice_number,
+                    "studentId": invoice.student_id,
+                    "totalCents": invoice.total_cents,
+                    "reason": reason,
+                }),
+                &at,
+            )?;
+            Ok(invoice)
         })
     }
 
@@ -335,7 +430,9 @@ impl BillingService {
     }
 
     pub fn list_by_class_term(db: &Db, class_id: &str, term_id: &str) -> AppResult<Vec<Invoice>> {
-        db.with_conn(|conn| SqliteInvoiceRepository::new(conn).list_by_class_term(class_id, term_id))
+        db.with_conn(|conn| {
+            SqliteInvoiceRepository::new(conn).list_by_class_term(class_id, term_id)
+        })
     }
 
     /// Convenience helper used by the setup command to report on the database.
@@ -343,5 +440,78 @@ impl BillingService {
         db.with_conn(|conn| {
             Ok(conn.query_row("SELECT COUNT(*) FROM invoices", [], |row| row.get(0))?)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infrastructure::db::Db;
+    use std::fs;
+
+    #[test]
+    fn cancelling_an_unpaid_supplementary_invoice_releases_its_fees() {
+        let dir = std::env::temp_dir().join(format!(
+            "sfs-invoice-cancel-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_millis()
+        ));
+        let db = Db::open(&dir).unwrap();
+        db.transaction(|conn| {
+            conn.execute(
+                "INSERT INTO users (id, username, password_hash, display_name) \
+                 VALUES ('u1', 'admin', 'test-hash', 'Admin')",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO students (id, student_number, first_name, last_name, dob, admission_date) \
+                 VALUES ('s1', 'STU-1', 'Test', 'Student', '2015-01-01', '2026-01-01')",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO terms (id, year, term_number, start_date, end_date) \
+                 VALUES ('t1', 2026, 1, '2026-01-01', '2026-04-01')",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO invoices (id, invoice_number, kind, student_id, term_id, issue_date, \
+                 due_date, status, subtotal_cents, discount_cents, total_cents, paid_cents) \
+                 VALUES ('i1', 'INV-1', 'SUPPLEMENTARY', 's1', 't1', '2026-01-01', \
+                 '2026-02-01', 'UNPAID', 1000, 0, 1000, 0)",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO student_fees (id, student_id, term_id, description, amount_cents, \
+                 status, invoice_id) VALUES ('f1', 's1', 't1', 'Late fee', 1000, 'BILLED', 'i1')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let invoice = BillingService::cancel_invoice(&db, "i1", "u1", "Incorrect charge").unwrap();
+        assert_eq!(invoice.status, "CANCELLED");
+        let (fee_status, audit_count): (String, i64) = db
+            .with_conn(|conn| {
+                Ok((
+                    conn.query_row(
+                        "SELECT status FROM student_fees WHERE id = 'f1'",
+                        [],
+                        |row| row.get(0),
+                    )?,
+                    conn.query_row(
+                        "SELECT COUNT(*) FROM audit_log \
+                         WHERE entity = 'invoice' AND action = 'cancelled'",
+                        [],
+                        |row| row.get(0),
+                    )?,
+                ))
+            })
+            .unwrap();
+        assert_eq!(fee_status, "PENDING");
+        assert_eq!(audit_count, 1);
+
+        drop(db);
+        let _ = fs::remove_dir_all(dir);
     }
 }

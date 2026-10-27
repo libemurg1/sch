@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react"
 import { z } from "zod"
-import { useRegisterStudent } from "../../api/queries"
+import { useRegisterStudent, useUpdateStudent } from "../../api/queries"
 import { Button, ErrorBanner, Field, Input, Modal, Select } from "../../components"
 import type { RegisterStudentInput } from "../../types/schema/RegisterStudentInput"
+import type { Student } from "../../types/schema/Student"
+import type { UpdateStudentInput } from "../../types/schema/UpdateStudentInput"
 
 const schema = z.object({
   firstName: z.string().trim().min(1, "First name is required"),
@@ -36,34 +38,57 @@ function optional(value: string): string | null {
   return trimmed === "" ? null : trimmed
 }
 
-export interface RegisterStudentModalProps {
+function fromStudent(student: Student): FormValues {
+  return {
+    firstName: student.firstName,
+    lastName: student.lastName,
+    dob: student.dob,
+    gender: student.gender ?? "",
+    admissionDate: student.admissionDate,
+    guardianName: student.guardianName ?? "",
+    guardianPhone: student.guardianPhone ?? "",
+    guardianEmail: student.guardianEmail ?? "",
+  }
+}
+
+export interface StudentFormModalProps {
   open: boolean
   onClose: () => void
   /** The server's current date, used as the default admission date. */
-  today: string
+  today?: string
+  /** When set, the form edits this student instead of registering a new one. */
+  student?: Student | null
 }
 
-export function RegisterStudentModal({
+export function StudentFormModal({
   open,
   onClose,
   today,
-}: RegisterStudentModalProps) {
+  student,
+}: StudentFormModalProps) {
   const [values, setValues] = useState<FormValues>(EMPTY)
   const [errors, setErrors] = useState<Partial<Record<keyof FormValues, string>>>(
     {},
   )
-  const mutation = useRegisterStudent()
+  const register = useRegisterStudent()
+  const update = useUpdateStudent()
+  const mutation = student ? update : register
 
   useEffect(() => {
     if (open) {
-      setValues({ ...EMPTY, admissionDate: today })
+      setValues(
+        student
+          ? fromStudent(student)
+          : { ...EMPTY, admissionDate: today ?? "" },
+      )
       setErrors({})
-      mutation.reset()
+      register.reset()
+      update.reset()
     }
-    // `mutation` is stable enough for this purpose; re-running on every
-    // render would wipe what the user is typing.
+    // Only re-run when the dialog opens or switches student. Including the
+    // whole student object would wipe edits after a background refetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, today])
+  }, [open, student?.id, today])
 
   const set = (key: keyof FormValues) => (value: string) => {
     setValues((current) => ({ ...current, [key]: value }))
@@ -84,7 +109,7 @@ export function RegisterStudentModal({
       return
     }
 
-    const input: RegisterStudentInput = {
+    const details = {
       firstName: parsed.data.firstName,
       lastName: parsed.data.lastName,
       dob: parsed.data.dob,
@@ -95,27 +120,36 @@ export function RegisterStudentModal({
       guardianEmail: optional(parsed.data.guardianEmail),
     }
 
-    mutation.mutate(input, {
-      onSuccess: () => {
-        setValues(EMPTY)
-        onClose()
-      },
-    })
+    if (student) {
+      const input: UpdateStudentInput = {
+        studentId: student.id,
+        ...details,
+      }
+      update.mutate(input, { onSuccess: onClose })
+      return
+    }
+
+    const input: RegisterStudentInput = details
+    register.mutate(input, { onSuccess: onClose })
   }
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="Register a student"
-      description="The student number is allocated automatically."
+      title={student ? "Edit student" : "Register a student"}
+      description={
+        student
+          ? `Student number ${student.studentNumber} cannot be changed.`
+          : "The student number is allocated automatically."
+      }
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
           <Button onClick={submit} loading={mutation.isPending}>
-            Register student
+            {student ? "Save changes" : "Register student"}
           </Button>
         </>
       }

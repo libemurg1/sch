@@ -26,6 +26,7 @@ const NAV: NavGroup[] = [
       { to: "/classes", label: "Classes" },
       { to: "/terms", label: "Terms" },
       { to: "/enrollment", label: "Enrollment" },
+      { to: "/promotion", label: "Promotion" },
       { to: "/fee-structures", label: "Fee Structures" },
       { to: "/discounts", label: "Discounts" },
     ],
@@ -37,6 +38,7 @@ const NAV: NavGroup[] = [
       { to: "/invoices", label: "Invoices" },
       { to: "/payments", label: "Payments" },
       { to: "/statements", label: "Statements" },
+      { to: "/reports", label: "Reports" },
     ],
   },
   {

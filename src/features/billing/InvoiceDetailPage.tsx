@@ -1,10 +1,14 @@
+import { useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { useInvoiceDetail, useStudents } from "../../api/queries"
+import { useCancelInvoice, useInvoiceDetail, useStudents } from "../../api/queries"
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorBanner,
+  Field as FormField,
+  Input,
   Loading,
   PageHeader,
   StatusBadge,
@@ -22,6 +26,9 @@ export function InvoiceDetailPage() {
   const { invoiceId } = useParams()
   const detail = useInvoiceDetail(invoiceId)
   const students = useStudents()
+  const cancelMutation = useCancelInvoice()
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState("")
 
   if (detail.isLoading) {
     return (
@@ -108,6 +115,18 @@ export function InvoiceDetailPage() {
                 Back
               </Link>
               <Button onClick={() => printDocument("a4")}>Print invoice</Button>
+              {invoice.status !== "CANCELLED" && invoice.paidCents === 0 ? (
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    cancelMutation.reset()
+                    setCancelReason("")
+                    setCancelOpen(true)
+                  }}
+                >
+                  Cancel invoice
+                </Button>
+              ) : null}
             </>
           }
         />
@@ -129,7 +148,11 @@ export function InvoiceDetailPage() {
             <Field label="Issued">{formatDate(invoice.issueDate)}</Field>
             <Field label="Due">{formatDate(invoice.dueDate)}</Field>
             <Field label="Balance">
-              {formatMoney(invoice.totalCents - invoice.paidCents)}
+              {formatMoney(
+                invoice.status === "CANCELLED"
+                  ? 0
+                  : invoice.totalCents - invoice.paidCents,
+              )}
             </Field>
           </dl>
 
@@ -156,8 +179,49 @@ export function InvoiceDetailPage() {
               emphasis
             />
           </dl>
+          {invoice.status === "CANCELLED" ? (
+            <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">
+              Cancelled{invoice.cancelReason ? `: ${invoice.cancelReason}` : "."}
+            </p>
+          ) : null}
         </Card>
       </div>
+
+      <ConfirmDialog
+        open={cancelOpen}
+        title="Cancel invoice"
+        confirmLabel="Cancel invoice"
+        loading={cancelMutation.isPending}
+        error={cancelMutation.error}
+        onCancel={() => {
+          cancelMutation.reset()
+          setCancelOpen(false)
+        }}
+        onConfirm={() => {
+          if (invoiceId && cancelReason.trim()) {
+            cancelMutation.mutate(
+              { invoiceId, reason: cancelReason.trim() },
+              { onSuccess: () => setCancelOpen(false) },
+            )
+          }
+        }}
+      >
+        <p>
+          This invoice has no recorded payment. Cancelling it preserves the
+          invoice history and allows pending supplementary fees to be billed
+          again.
+        </p>
+        <FormField label="Reason" htmlFor="invoice-cancel-reason" required>
+          <Input
+            id="invoice-cancel-reason"
+            value={cancelReason}
+            onChange={(event) => setCancelReason(event.target.value)}
+            required
+            maxLength={500}
+            placeholder="Explain why this invoice is being cancelled"
+          />
+        </FormField>
+      </ConfirmDialog>
 
       <div className="print-only hidden">
         <InvoiceDocument

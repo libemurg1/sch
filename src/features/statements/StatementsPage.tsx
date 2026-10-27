@@ -21,6 +21,7 @@ import { StatementDocument } from "../../reports/StatementDocument"
 import { printDocument } from "../../reports/print"
 import type { Invoice } from "../../types/schema/Invoice"
 import type { Payment } from "../../types/schema/Payment"
+import type { AccountLedgerEntry } from "../../types/schema/AccountLedgerEntry"
 
 export function StatementsPage() {
   const [params, setParams] = useSearchParams()
@@ -74,7 +75,16 @@ export function StatementsPage() {
       header: "Balance",
       align: "right",
       render: (invoice) =>
-        formatMoney(invoice.totalCents - invoice.paidCents),
+        formatMoney(
+          invoice.status === "CANCELLED"
+            ? 0
+            : invoice.totalCents - invoice.paidCents,
+        ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (invoice) => invoice.status,
     },
   ]
 
@@ -101,6 +111,63 @@ export function StatementsPage() {
       header: "Amount",
       align: "right",
       render: (payment) => formatMoney(payment.amountCents),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (payment) =>
+        payment.reversedAt ? (
+          <span
+            className="text-xs font-medium text-rose-700"
+            title={payment.reversalReason ?? undefined}
+          >
+            Reversed
+          </span>
+        ) : (
+          "Recorded"
+        ),
+    },
+  ]
+
+  const ledgerColumns: Column<AccountLedgerEntry>[] = [
+    {
+      key: "date",
+      header: "Date",
+      render: (entry) => formatDate(entry.date),
+    },
+    {
+      key: "reference",
+      header: "Reference",
+      render: (entry) => (
+        <span className="font-mono text-xs">{entry.reference}</span>
+      ),
+    },
+    {
+      key: "description",
+      header: "Account entry",
+      render: (entry) => entry.description,
+    },
+    {
+      key: "debit",
+      header: "Debit",
+      align: "right",
+      render: (entry) =>
+        entry.debitCents > 0 ? formatMoney(entry.debitCents) : "-",
+    },
+    {
+      key: "credit",
+      header: "Credit",
+      align: "right",
+      render: (entry) =>
+        entry.creditCents > 0 ? formatMoney(entry.creditCents) : "-",
+    },
+    {
+      key: "balance",
+      header: "Balance",
+      align: "right",
+      render: (entry) => (
+        <span className="font-semibold">{formatMoney(entry.balanceCents)}</span>
+      ),
     },
   ]
 
@@ -176,7 +243,9 @@ export function StatementsPage() {
                   {formatMoney(statement.data.creditCents)}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Not yet applied to an invoice.
+                  {termId
+                    ? "Unapplied account credit; not included in this term's balance."
+                    : "Not yet applied to an invoice."}
                 </p>
               </Card>
               <Card title="Balance">
@@ -203,6 +272,18 @@ export function StatementsPage() {
               )}
             </Card>
 
+            <Card
+              title="Account ledger"
+              description="Debits increase the balance; credits reduce it. The running balance is shown after every entry."
+            >
+              <Table
+                columns={ledgerColumns}
+                rows={statement.data.ledger}
+                keyOf={(entry) => entry.id}
+                empty={<EmptyState title="No account activity" />}
+              />
+            </Card>
+
             <Card title="Payments">
               {statement.data.payments.length === 0 ? (
                 <EmptyState title="No payments" />
@@ -226,6 +307,7 @@ export function StatementsPage() {
             term={statement.data.term}
             invoices={statement.data.invoices}
             payments={statement.data.payments}
+            ledger={statement.data.ledger}
             totalBilledCents={statement.data.totalBilledCents}
             totalPaidCents={statement.data.totalPaidCents}
             creditCents={statement.data.creditCents}

@@ -1,7 +1,8 @@
 use crate::domain::dto::{
-    CreateClassInput, CreateTermInput, EnrollStudentInput, UpdateClassInput, UpdateTermInput,
+    CreateClassInput, CreateTermInput, EnrollStudentInput, MoveStudentInput, UpdateClassInput,
+    UpdateTermInput,
 };
-use crate::domain::entities::{Class, Enrollment, Term};
+use crate::domain::entities::{Class, Enrollment, Grade, Term};
 use crate::domain::errors::{AppError, AppResult};
 use crate::domain::ports::{ClassRepository, EnrollmentRepository, TermRepository};
 use crate::infrastructure::db::Db;
@@ -9,68 +10,87 @@ use crate::infrastructure::sqlite::class_repository::SqliteClassRepository;
 use crate::infrastructure::sqlite::enrollment_repository::SqliteEnrollmentRepository;
 use crate::infrastructure::sqlite::term_repository::SqliteTermRepository;
 use crate::infrastructure::sqlite::unit_of_work::UnitOfWork;
+use rusqlite::Connection;
 use uuid::Uuid;
 
 /// Use cases for classes, terms and enrollments.
 pub struct EnrollmentService;
 
 impl EnrollmentService {
-    pub fn list_classes(db: &Db) -> AppResult<Vec<Class>> {
-        db.with_conn(|conn| SqliteClassRepository::new(conn).list())
+    pub fn list_classes(db: &Db, year: Option<i32>) -> AppResult<Vec<Class>> {
+        db.with_conn(|conn| match year {
+            Some(year) => SqliteClassRepository::new(conn).list_by_year(year),
+            None => SqliteClassRepository::new(conn).list(),
+        })
+    }
+
+    pub fn list_grades(db: &Db) -> AppResult<Vec<Grade>> {
+        db.with_conn(|conn| SqliteClassRepository::new(conn).list_grades())
     }
 
     pub fn create_class(db: &Db, input: CreateClassInput) -> AppResult<Class> {
-        if input.name.trim().is_empty() {
-            return Err(AppError::validation("Class name is required"));
-        }
-        if input.grade_level < 0 {
-            return Err(AppError::validation("Grade level cannot be negative"));
-        }
-        if input.capacity <= 0 {
-            return Err(AppError::validation("Capacity must be greater than zero"));
-        }
-
-        let class = Class {
-            id: Uuid::new_v4().to_string(),
-            name: input.name.trim().to_string(),
-            grade_level: input.grade_level,
-            capacity: input.capacity,
-        };
-
-        db.execute(|conn| SqliteClassRepository::new(conn).create(&class))?;
-        Ok(class)
-    }
-
-    pub fn update_class(db: &Db, input: UpdateClassInput) -> AppResult<Class> {
-        let name = input.name.trim().to_string();
-        if name.is_empty() {
-            return Err(AppError::validation("Class name is required"));
-        }
-        if input.grade_level < 0 {
-            return Err(AppError::validation("Grade level cannot be negative"));
-        }
-        if input.capacity <= 0 {
-            return Err(AppError::validation("Capacity must be greater than zero"));
-        }
+        validate_class_input(&input)?;
 
         db.transaction(|conn| {
             let repo = SqliteClassRepository::new(conn);
-            repo.find_by_id(&input.id)?
+            let name = compose_class_name(conn, input.grade_level, &input.stream)?;
+
+            if repo
+                .find_by_year_name(input.academic_year, &name)?
+                .is_some()
+            {
+                return Err(AppError::conflict(format!(
+                    "\"{}\" already exists for {}",
+                    name, input.academic_year
+                )));
+            }
+
+            let class = Class {
+                id: Uuid::new_v4().to_string(),
+                name,
+                grade_level: input.grade_level,
+                stream: input.stream.trim().to_string(),
+                academic_year: input.academic_year,
+                capacity: input.capacity,
+            };
+            repo.create(&class)?;
+            Ok(class)
+        })
+    }
+
+    pub fn update_class(db: &Db, input: UpdateClassInput) -> AppResult<Class> {
+        validate_update_class_input(&input)?;
+
+        db.transaction(|conn| {
+            let repo = SqliteClassRepository::new(conn);
+            let existing = repo
+                .find_by_id(&input.id)?
                 .ok_or_else(|| AppError::not_found("Class", &input.id))?;
 
-            if let Some(other) = repo.find_by_name(&name)? {
+            if input.academic_year != existing.academic_year
+                && repo.reference_count(&input.id)? > 0
+            {
+                return Err(AppError::conflict(
+                    "This class already has students, fees or promotions. Create a class in the new year instead of moving it.",
+                ));
+            }
+
+            let name = compose_class_name(conn, input.grade_level, &input.stream)?;
+            if let Some(other) = repo.find_by_year_name(input.academic_year, &name)? {
                 if other.id != input.id {
                     return Err(AppError::conflict(format!(
-                        "A class named \"{}\" already exists",
-                        name
+                        "\"{}\" already exists for {}",
+                        name, input.academic_year
                     )));
                 }
             }
 
             let class = Class {
                 id: input.id.clone(),
-                name: name.clone(),
+                name,
                 grade_level: input.grade_level,
+                stream: input.stream.trim().to_string(),
+                academic_year: input.academic_year,
                 capacity: input.capacity,
             };
             repo.update(&class)?;
@@ -87,7 +107,7 @@ impl EnrollmentService {
 
             if repo.reference_count(class_id)? > 0 {
                 return Err(AppError::conflict(format!(
-                    "\"{}\" is used by enrollments, fee structures or invoices and cannot be deleted. Rename it instead.",
+                    "\"{}\" is used by students, fees or promotions and cannot be deleted. Rename it instead.",
                     class.name
                 )));
             }
@@ -114,7 +134,9 @@ impl EnrollmentService {
             return Err(AppError::validation("Start and end dates are required"));
         }
         if input.end_date < input.start_date {
-            return Err(AppError::validation("End date cannot precede the start date"));
+            return Err(AppError::validation(
+                "End date cannot precede the start date",
+            ));
         }
 
         let term = Term {
@@ -128,7 +150,10 @@ impl EnrollmentService {
 
         db.execute(|conn| {
             let repo = SqliteTermRepository::new(conn);
-            if repo.find_by_year_term(term.year, term.term_number)?.is_some() {
+            if repo
+                .find_by_year_term(term.year, term.term_number)?
+                .is_some()
+            {
                 return Err(AppError::conflict(format!(
                     "Term {} of {} already exists",
                     term.term_number, term.year
@@ -151,7 +176,9 @@ impl EnrollmentService {
             return Err(AppError::validation("Start and end dates are required"));
         }
         if input.end_date < input.start_date {
-            return Err(AppError::validation("End date cannot precede the start date"));
+            return Err(AppError::validation(
+                "End date cannot precede the start date",
+            ));
         }
 
         db.transaction(|conn| {
@@ -194,7 +221,7 @@ impl EnrollmentService {
 
             if repo.reference_count(term_id)? > 0 {
                 return Err(AppError::conflict(format!(
-                    "Term {} of {} is used by enrollments, fees, invoices or discounts and cannot be deleted.",
+                    "Term {} of {} is used by students, fees, invoices or discounts and cannot be deleted.",
                     term.term_number, term.year
                 )));
             }
@@ -221,6 +248,8 @@ impl EnrollmentService {
             term_id: input.term_id.trim().to_string(),
             status: "ACTIVE".to_string(),
             enrolled_at: crate::application::now_iso(),
+            ended_at: None,
+            end_reason: None,
         };
 
         db.execute(|conn| {
@@ -239,7 +268,19 @@ impl EnrollmentService {
                 .find_by_id(&enrollment.class_id)?
                 .ok_or_else(|| AppError::not_found("Class", &enrollment.class_id))?;
 
-            let enrolled = enrollments.count_by_class_term(&enrollment.class_id, &enrollment.term_id)?;
+            let term = SqliteTermRepository::new(conn)
+                .find_by_id(&enrollment.term_id)?
+                .ok_or_else(|| AppError::not_found("Term", &enrollment.term_id))?;
+
+            if class.academic_year != term.year {
+                return Err(AppError::validation(format!(
+                    "{} belongs to {} but the term is in {}",
+                    class.name, class.academic_year, term.year
+                )));
+            }
+
+            let enrolled =
+                enrollments.count_by_class_term(&enrollment.class_id, &enrollment.term_id)?;
             if enrolled >= class.capacity {
                 return Err(AppError::conflict(format!(
                     "Class {} is full ({} students)",
@@ -253,19 +294,119 @@ impl EnrollmentService {
         Ok(enrollment)
     }
 
+    /// Moves a student to another class (stream) within the same term.
+    pub fn move_student(db: &Db, input: MoveStudentInput) -> AppResult<Enrollment> {
+        if input.student_id.trim().is_empty()
+            || input.class_id.trim().is_empty()
+            || input.term_id.trim().is_empty()
+        {
+            return Err(AppError::validation(
+                "Student, class and term are all required",
+            ));
+        }
+
+        db.transaction(|conn| {
+            let enrollments = SqliteEnrollmentRepository::new(conn);
+            let enrollment = enrollments
+                .find_by_student_term(&input.student_id, &input.term_id)?
+                .ok_or_else(|| {
+                    AppError::not_found("Enrollment", &format!("{} in this term", input.student_id))
+                })?;
+
+            if enrollment.class_id == input.class_id {
+                return Ok(enrollment);
+            }
+
+            let class = SqliteClassRepository::new(conn)
+                .find_by_id(&input.class_id)?
+                .ok_or_else(|| AppError::not_found("Class", &input.class_id))?;
+
+            let term = SqliteTermRepository::new(conn)
+                .find_by_id(&input.term_id)?
+                .ok_or_else(|| AppError::not_found("Term", &input.term_id))?;
+
+            if class.academic_year != term.year {
+                return Err(AppError::validation(format!(
+                    "{} belongs to {} but the term is in {}",
+                    class.name, class.academic_year, term.year
+                )));
+            }
+
+            let enrolled = enrollments.count_by_class_term(&input.class_id, &input.term_id)?;
+            if enrolled >= class.capacity {
+                return Err(AppError::conflict(format!(
+                    "Class {} is full ({} students)",
+                    class.name, class.capacity
+                )));
+            }
+
+            enrollments.update_class(&enrollment.id, &input.class_id)?;
+            Ok(Enrollment {
+                class_id: input.class_id.clone(),
+                ..enrollment
+            })
+        })
+    }
+
+    /// The class roster for a term, including historical inactive enrollments.
     pub fn list_by_class_term(
         db: &Db,
         class_id: &str,
         term_id: &str,
     ) -> AppResult<Vec<Enrollment>> {
         db.with_conn(|conn| {
-            SqliteEnrollmentRepository::new(conn).list_by_class_term(class_id, term_id)
+            SqliteEnrollmentRepository::new(conn).list_by_class_term_all_statuses(class_id, term_id)
         })
+    }
+
+    /// Every enrollment in a term, including inactive historical rows.
+    pub fn list_by_term(db: &Db, term_id: &str) -> AppResult<Vec<Enrollment>> {
+        db.with_conn(|conn| SqliteEnrollmentRepository::new(conn).list_by_term(term_id))
     }
 
     pub fn list_by_student(db: &Db, student_id: &str) -> AppResult<Vec<Enrollment>> {
         db.with_conn(|conn| SqliteEnrollmentRepository::new(conn).list_by_student(student_id))
     }
+}
+
+fn validate_class_input(input: &CreateClassInput) -> AppResult<()> {
+    if !(2000..=2100).contains(&input.academic_year) {
+        return Err(AppError::validation("Choose a valid academic year"));
+    }
+    if input.capacity <= 0 {
+        return Err(AppError::validation("Capacity must be greater than zero"));
+    }
+    Ok(())
+}
+
+fn validate_update_class_input(input: &UpdateClassInput) -> AppResult<()> {
+    if !(2000..=2100).contains(&input.academic_year) {
+        return Err(AppError::validation("Choose a valid academic year"));
+    }
+    if input.capacity <= 0 {
+        return Err(AppError::validation("Capacity must be greater than zero"));
+    }
+    Ok(())
+}
+
+/// Builds the display name ("Grade 1 Blue") from the grade and stream.
+fn compose_class_name(conn: &Connection, grade_level: i32, stream: &str) -> AppResult<String> {
+    let grade = SqliteClassRepository::new(conn)
+        .find_grade(grade_level)?
+        .ok_or_else(|| AppError::validation("Choose a grade"))?;
+
+    let stream = stream.trim();
+    if stream.chars().count() > 40 {
+        return Err(AppError::validation(
+            "The stream must be 40 characters or fewer",
+        ));
+    }
+
+    Ok(if stream.is_empty() {
+        grade.name
+    } else {
+        format!("{} {}", grade.name, stream)
+    })
 }
 
 #[cfg(test)]
@@ -275,13 +416,17 @@ mod tests {
     use std::path::PathBuf;
 
     fn temp_db(name: &str) -> (Db, PathBuf) {
-        let dir = std::env::temp_dir().join(format!(
-            "sfs-enrollment-{}-{}",
-            name,
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sfs-enrollment-{}-{}", name, std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let db = Db::open(&dir).unwrap();
+        // Migrations seed the standard classes; tests build their own world.
+        db.transaction(|conn| {
+            conn.execute("DELETE FROM classes", [])?;
+            conn.execute("DELETE FROM terms", [])?;
+            Ok(())
+        })
+        .unwrap();
         (db, dir)
     }
 
@@ -297,26 +442,27 @@ mod tests {
         .unwrap();
     }
 
-    fn make_class(db: &Db, name: &str) -> Class {
+    fn make_class(db: &Db, stream: &str) -> Class {
         EnrollmentService::create_class(
             db,
             CreateClassInput {
-                name: name.into(),
                 grade_level: 1,
+                stream: stream.into(),
+                academic_year: 2026,
                 capacity: 20,
             },
         )
         .unwrap()
     }
 
-    fn make_term(db: &Db) -> Term {
+    fn make_term(db: &Db, year: i32) -> Term {
         EnrollmentService::create_term(
             db,
             CreateTermInput {
-                year: 2026,
+                year,
                 term_number: 1,
-                start_date: "2026-01-01".into(),
-                end_date: "2026-04-01".into(),
+                start_date: format!("{year}-01-01"),
+                end_date: format!("{year}-04-01"),
                 is_active: true,
             },
         )
@@ -324,17 +470,56 @@ mod tests {
     }
 
     #[test]
+    fn class_names_come_from_the_grade_and_stream() {
+        let (db, dir) = temp_db("names");
+        let class = make_class(&db, "Blue");
+        assert_eq!(class.name, "Grade 1 Blue");
+        assert_eq!(class.stream, "Blue");
+        assert_eq!(class.academic_year, 2026);
+
+        assert_eq!(
+            EnrollmentService::create_class(
+                &db,
+                CreateClassInput {
+                    grade_level: 1,
+                    stream: "Blue".into(),
+                    academic_year: 2026,
+                    capacity: 20,
+                },
+            )
+            .unwrap_err()
+            .code,
+            "CONFLICT"
+        );
+
+        // The same class name is allowed in a different year.
+        EnrollmentService::create_class(
+            &db,
+            CreateClassInput {
+                grade_level: 1,
+                stream: "Blue".into(),
+                academic_year: 2027,
+                capacity: 20,
+            },
+        )
+        .unwrap();
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn classes_and_terms_can_be_edited_and_deleted_when_unused() {
         let (db, dir) = temp_db("crud");
-        let class = make_class(&db, "Grade 1 Blue");
-        let term = make_term(&db);
+        let class = make_class(&db, "Blue");
+        let term = make_term(&db, 2026);
 
         let renamed = EnrollmentService::update_class(
             &db,
             UpdateClassInput {
                 id: class.id.clone(),
-                name: "Grade 1 Green".into(),
                 grade_level: 1,
+                stream: "Green".into(),
+                academic_year: 2026,
                 capacity: 25,
             },
         )
@@ -343,7 +528,9 @@ mod tests {
         assert_eq!(renamed.capacity, 25);
 
         EnrollmentService::delete_class(&db, &class.id).unwrap();
-        assert!(EnrollmentService::list_classes(&db).unwrap().is_empty());
+        assert!(EnrollmentService::list_classes(&db, None)
+            .unwrap()
+            .is_empty());
 
         let edited = EnrollmentService::update_term(
             &db,
@@ -369,8 +556,8 @@ mod tests {
     fn a_class_or_term_in_use_cannot_be_deleted() {
         let (db, dir) = temp_db("in-use");
         seed_student(&db);
-        let class = make_class(&db, "Grade 1 Blue");
-        let term = make_term(&db);
+        let class = make_class(&db, "Blue");
+        let term = make_term(&db, 2026);
 
         EnrollmentService::enroll(
             &db,
@@ -383,13 +570,167 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            EnrollmentService::delete_class(&db, &class.id).unwrap_err().code,
+            EnrollmentService::delete_class(&db, &class.id)
+                .unwrap_err()
+                .code,
             "CONFLICT"
         );
         assert_eq!(
-            EnrollmentService::delete_term(&db, &term.id).unwrap_err().code,
+            EnrollmentService::delete_term(&db, &term.id)
+                .unwrap_err()
+                .code,
             "CONFLICT"
         );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_student_can_move_to_another_stream_in_the_same_term() {
+        let (db, dir) = temp_db("move");
+        seed_student(&db);
+        let blue = make_class(&db, "Blue");
+        let yellow = make_class(&db, "Yellow");
+        let term = make_term(&db, 2026);
+
+        EnrollmentService::enroll(
+            &db,
+            EnrollStudentInput {
+                student_id: "s1".into(),
+                class_id: blue.id.clone(),
+                term_id: term.id.clone(),
+            },
+        )
+        .unwrap();
+
+        let moved = EnrollmentService::move_student(
+            &db,
+            MoveStudentInput {
+                student_id: "s1".into(),
+                term_id: term.id.clone(),
+                class_id: yellow.id.clone(),
+            },
+        )
+        .unwrap();
+        assert_eq!(moved.class_id, yellow.id);
+
+        let roster = EnrollmentService::list_by_class_term(&db, &yellow.id, &term.id).unwrap();
+        assert_eq!(roster.len(), 1);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn historical_roster_includes_inactive_enrollments_but_active_list_does_not() {
+        let (db, dir) = temp_db("roster-history");
+        seed_student(&db);
+        let class = make_class(&db, "Blue");
+        let term = make_term(&db, 2026);
+
+        EnrollmentService::enroll(
+            &db,
+            EnrollStudentInput {
+                student_id: "s1".into(),
+                class_id: class.id.clone(),
+                term_id: term.id.clone(),
+            },
+        )
+        .unwrap();
+
+        db.transaction(|conn| {
+            conn.execute("UPDATE enrollments SET status = 'INACTIVE'", [])?;
+            Ok(())
+        })
+        .unwrap();
+
+        let roster = EnrollmentService::list_by_class_term(&db, &class.id, &term.id).unwrap();
+        assert_eq!(roster.len(), 1);
+        assert_eq!(roster[0].status, "INACTIVE");
+
+        let active = db
+            .with_conn(|conn| {
+                SqliteEnrollmentRepository::new(conn).list_by_class_term(&class.id, &term.id)
+            })
+            .unwrap();
+        assert!(active.is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn term_roster_includes_inactive_rows_and_excludes_other_terms() {
+        let (db, dir) = temp_db("roster-term");
+        seed_student(&db);
+        let class_2026 = make_class(&db, "Blue");
+        let term_2026 = make_term(&db, 2026);
+        let class_2027 = EnrollmentService::create_class(
+            &db,
+            CreateClassInput {
+                grade_level: 1,
+                stream: "Blue".into(),
+                academic_year: 2027,
+                capacity: 20,
+            },
+        )
+        .unwrap();
+        let term_2027 = make_term(&db, 2027);
+
+        EnrollmentService::enroll(
+            &db,
+            EnrollStudentInput {
+                student_id: "s1".into(),
+                class_id: class_2026.id.clone(),
+                term_id: term_2026.id.clone(),
+            },
+        )
+        .unwrap();
+        EnrollmentService::enroll(
+            &db,
+            EnrollStudentInput {
+                student_id: "s1".into(),
+                class_id: class_2027.id,
+                term_id: term_2027.id.clone(),
+            },
+        )
+        .unwrap();
+
+        db.transaction(|conn| {
+            conn.execute(
+                "UPDATE enrollments SET status = 'INACTIVE' WHERE term_id = ?",
+                rusqlite::params![term_2026.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let roster_2026 = EnrollmentService::list_by_term(&db, &term_2026.id).unwrap();
+        assert_eq!(roster_2026.len(), 1);
+        assert_eq!(roster_2026[0].status, "INACTIVE");
+
+        let roster_2027 = EnrollmentService::list_by_term(&db, &term_2027.id).unwrap();
+        assert_eq!(roster_2027.len(), 1);
+        assert_eq!(roster_2027[0].status, "ACTIVE");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_class_from_another_year_cannot_be_used_for_a_term() {
+        let (db, dir) = temp_db("wrong-year");
+        seed_student(&db);
+        let class = make_class(&db, "Blue");
+        let term = make_term(&db, 2027);
+
+        let error = EnrollmentService::enroll(
+            &db,
+            EnrollStudentInput {
+                student_id: "s1".into(),
+                class_id: class.id,
+                term_id: term.id,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "VALIDATION");
 
         let _ = fs::remove_dir_all(&dir);
     }

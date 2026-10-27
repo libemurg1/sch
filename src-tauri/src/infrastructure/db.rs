@@ -17,6 +17,7 @@ include!(concat!(env!("OUT_DIR"), "/migrations_gen.rs"));
 /// it again.
 pub struct Db {
     conn: Mutex<Connection>,
+    app_dir: PathBuf,
 }
 
 impl Db {
@@ -53,6 +54,7 @@ impl Db {
 
         Ok(Self {
             conn: Mutex::new(conn),
+            app_dir: app_dir.to_path_buf(),
         })
     }
 
@@ -98,7 +100,17 @@ impl Db {
     /// restored file is missing are applied afterwards, so a backup taken by an
     /// older build can still be restored.
     pub fn restore_from_backup(&self, backup_path: &Path) -> AppResult<()> {
+        backup::validate_backup(backup_path, MIGRATIONS.len() as i32)?;
+        let current_path = self.app_dir.join("school.db");
+        if backup_path.canonicalize()? == current_path.canonicalize()? {
+            return Err(AppError::new(
+                "BACKUP_FAILED",
+                "The live database cannot be restored as its own backup",
+            ));
+        }
+
         let mut conn = self.lock()?;
+        backup::backup_database(&conn, &self.app_dir)?;
         backup::restore_database(&mut conn, backup_path)?;
         apply_migrations(&conn)?;
         Ok(())
@@ -152,28 +164,39 @@ fn has_user_tables(conn: &Connection) -> AppResult<bool> {
 fn apply_migrations(conn: &Connection) -> AppResult<()> {
     let current_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
-    for (index, (name, sql)) in MIGRATIONS.iter().enumerate() {
-        let version = (index + 1) as i32;
-        if version <= current_version {
-            continue;
+    // Migrations that rebuild a table would otherwise make SQLite rewrite the
+    // FOREIGN KEY clauses of every child table to point at the temporary name
+    // (the rename happens while `foreign_keys` is ON). Disable enforcement for
+    // the duration of the migrations and switch it back on afterwards; the
+    // migration itself is responsible for copying every row.
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+
+    let migrated = (|| -> AppResult<()> {
+        for (index, (name, sql)) in MIGRATIONS.iter().enumerate() {
+            let version = (index + 1) as i32;
+            if version <= current_version {
+                continue;
+            }
+
+            conn.execute_batch("BEGIN IMMEDIATE;")?;
+            let applied = conn.execute_batch(sql).and_then(|_| {
+                conn.pragma_update(None, "user_version", version)?;
+                conn.execute_batch("COMMIT;")
+            });
+
+            if let Err(error) = applied {
+                let _ = conn.execute_batch("ROLLBACK;");
+                return Err(AppError::new(
+                    "MIGRATION_FAILED",
+                    format!("Migration {} failed: {}", name, error),
+                ));
+            }
         }
+        Ok(())
+    })();
 
-        conn.execute_batch("BEGIN IMMEDIATE;")?;
-        let applied = conn.execute_batch(sql).and_then(|_| {
-            conn.pragma_update(None, "user_version", version)?;
-            conn.execute_batch("COMMIT;")
-        });
-
-        if let Err(error) = applied {
-            let _ = conn.execute_batch("ROLLBACK;");
-            return Err(AppError::new(
-                "MIGRATION_FAILED",
-                format!("Migration {} failed: {}", name, error),
-            ));
-        }
-    }
-
-    Ok(())
+    conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    migrated
 }
 
 #[cfg(test)]
@@ -240,13 +263,56 @@ mod tests {
     }
 
     #[test]
+    fn install_seeds_grades_and_standard_classes() {
+        let dir = temp_dir("seeds");
+        let db = Db::open(&dir).unwrap();
+
+        let (grades, classes): (i64, i64) = db
+            .with_conn(|conn| {
+                Ok((
+                    conn.query_row("SELECT COUNT(*) FROM grades", [], |r| r.get(0))?,
+                    conn.query_row("SELECT COUNT(*) FROM classes", [], |r| r.get(0))?,
+                ))
+            })
+            .unwrap();
+        assert_eq!(grades, 10);
+        assert_eq!(classes, 10);
+
+        let (level, name): (i32, String) = db
+            .with_conn(|conn| {
+                Ok(conn.query_row(
+                    "SELECT grade_level, name FROM classes WHERE name = 'ECD A'",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?)
+            })
+            .unwrap();
+        assert_eq!(level, -1);
+        assert_eq!(name, "ECD A");
+
+        let (level, stream): (i32, String) = db
+            .with_conn(|conn| {
+                Ok(conn.query_row(
+                    "SELECT grade_level, stream FROM classes WHERE name = 'Nursery'",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?)
+            })
+            .unwrap();
+        assert_eq!(level, -2);
+        assert_eq!(stream, "");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn restore_brings_back_the_backup_contents() {
         let dir = temp_dir("restore");
         let db = Db::open(&dir).unwrap();
 
         db.transaction(|conn| {
             Ok(conn.execute(
-                "INSERT INTO classes (id, name, grade_level, capacity) VALUES ('c1', 'Grade 1', 1, 30)",
+                "INSERT INTO classes (id, name, grade_level, stream, academic_year, capacity) VALUES ('c1', 'Test Class', 1, '', 2026, 30)",
                 [],
             )?)
         })
@@ -259,7 +325,11 @@ mod tests {
 
         let count: i64 = db
             .with_conn(|conn| {
-                Ok(conn.query_row("SELECT COUNT(*) FROM classes", [], |r| r.get(0))?)
+                Ok(
+                    conn.query_row("SELECT COUNT(*) FROM classes WHERE id = 'c1'", [], |r| {
+                        r.get(0)
+                    })?,
+                )
             })
             .unwrap();
         assert_eq!(count, 0);
@@ -268,7 +338,11 @@ mod tests {
 
         let count: i64 = db
             .with_conn(|conn| {
-                Ok(conn.query_row("SELECT COUNT(*) FROM classes", [], |r| r.get(0))?)
+                Ok(
+                    conn.query_row("SELECT COUNT(*) FROM classes WHERE id = 'c1'", [], |r| {
+                        r.get(0)
+                    })?,
+                )
             })
             .unwrap();
         assert_eq!(count, 1);
@@ -283,7 +357,7 @@ mod tests {
 
         let result: AppResult<()> = db.transaction(|conn| {
             conn.execute(
-                "INSERT INTO classes (id, name, grade_level, capacity) VALUES ('c1', 'Grade 1', 1, 30)",
+                "INSERT INTO classes (id, name, grade_level, stream, academic_year, capacity) VALUES ('c1', 'Test Class', 1, '', 2026, 30)",
                 [],
             )?;
             Err(AppError::new("BOOM", "forced failure"))
@@ -292,7 +366,11 @@ mod tests {
 
         let count: i64 = db
             .with_conn(|conn| {
-                Ok(conn.query_row("SELECT COUNT(*) FROM classes", [], |r| r.get(0))?)
+                Ok(
+                    conn.query_row("SELECT COUNT(*) FROM classes WHERE id = 'c1'", [], |r| {
+                        r.get(0)
+                    })?,
+                )
             })
             .unwrap();
         assert_eq!(count, 0);
@@ -307,7 +385,7 @@ mod tests {
 
         db.transaction(|conn| {
             Ok(conn.execute(
-                "INSERT INTO classes (id, name, grade_level, capacity) VALUES ('c1', 'Grade 1', 1, 30)",
+                "INSERT INTO classes (id, name, grade_level, stream, academic_year, capacity) VALUES ('c1', 'Test Class', 1, '', 2026, 30)",
                 [],
             )?)
         })
@@ -315,7 +393,11 @@ mod tests {
 
         let count: i64 = db
             .with_conn(|conn| {
-                Ok(conn.query_row("SELECT COUNT(*) FROM classes", [], |r| r.get(0))?)
+                Ok(
+                    conn.query_row("SELECT COUNT(*) FROM classes WHERE id = 'c1'", [], |r| {
+                        r.get(0)
+                    })?,
+                )
             })
             .unwrap();
         assert_eq!(count, 1);
