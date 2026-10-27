@@ -56,6 +56,7 @@ import {
 } from "./payments"
 import { getFinanceReport, listAuditEntries } from "./reports"
 import { getAppInfo } from "./setup"
+import { getLicenseStatus } from "./license"
 import { getInvoiceDetail, getStudentStatement } from "./statements"
 import {
   getStudent,
@@ -99,6 +100,14 @@ import type { UpdateTermInput } from "../types/schema/UpdateTermInput"
 
 export function useAppInfo() {
   return useQuery({ queryKey: ["app-info"], queryFn: getAppInfo })
+}
+
+export function useLicenseStatus() {
+  return useQuery({
+    queryKey: ["license-status"],
+    queryFn: getLicenseStatus,
+    refetchInterval: 5 * 60 * 1000,
+  })
 }
 
 export function useFinanceReport(startDate: string, endDate: string) {

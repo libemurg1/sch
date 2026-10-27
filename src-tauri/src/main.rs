@@ -2,6 +2,7 @@ mod application;
 mod commands;
 mod domain;
 mod infrastructure;
+mod license;
 
 use domain::auth::User;
 use infrastructure::db::Db;
@@ -56,6 +57,7 @@ impl LoginGuard {
 pub struct AppState {
     pub db: Arc<Db>,
     pub db_path: PathBuf,
+    pub licensing: license::Licensing,
     /// The currently authenticated user for this app instance. Cleared on logout.
     pub session: Mutex<Option<User>>,
     pub login_guard: Mutex<LoginGuard>,
@@ -71,6 +73,11 @@ impl AppState {
             })?
             .clone()
             .ok_or_else(crate::domain::errors::AppError::unauthorized)
+    }
+
+    pub fn require_write_auth(&self) -> crate::domain::errors::AppResult<User> {
+        self.licensing.ensure_writable()?;
+        self.require_auth()
     }
 
     /// Returns the authenticated user if logged in, without failing.
@@ -95,10 +102,13 @@ fn main() {
 
             let db = Db::open(&app_dir)
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+            let licensing = license::Licensing::open(&app_dir)
+                .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
 
             app.manage(AppState {
                 db: Arc::new(db),
                 db_path: app_dir.join("school.db"),
+                licensing,
                 session: Mutex::new(None),
                 login_guard: Mutex::new(LoginGuard::default()),
             });
@@ -176,6 +186,8 @@ fn main() {
             commands::setup::list_backups,
             commands::setup::restore_database,
             commands::setup::export_backup,
+            commands::license::get_license_status,
+            commands::license::activate_license,
             commands::reports::get_finance_report,
             commands::reports::list_audit_entries,
         ])

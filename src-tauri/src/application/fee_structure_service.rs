@@ -11,7 +11,11 @@ use uuid::Uuid;
 pub struct FeeStructureService;
 
 impl FeeStructureService {
-    pub fn get(db: &Db, class_id: &str, term_id: &str) -> AppResult<Option<(FeeStructure, Vec<FeeItem>)>> {
+    pub fn get(
+        db: &Db,
+        class_id: &str,
+        term_id: &str,
+    ) -> AppResult<Option<(FeeStructure, Vec<FeeItem>)>> {
         db.with_conn(|conn| {
             let repository = SqliteFeeStructureRepository::new(conn);
             let Some(structure) = repository.find_by_class_term(class_id, term_id)? else {

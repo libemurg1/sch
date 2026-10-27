@@ -36,6 +36,12 @@ impl<'c> NumberGenerator<'c> {
     /// Increments the counter for `prefix`-`year` and formats the value.
     pub fn next_formatted(&self, prefix: &str, year: i32, width: usize) -> AppResult<String> {
         let sequence = self.next(&format!("{}-{}", prefix, year))?;
-        Ok(format!("{}-{}-{:0width$}", prefix, year, sequence, width = width))
+        Ok(format!(
+            "{}-{}-{:0width$}",
+            prefix,
+            year,
+            sequence,
+            width = width
+        ))
     }
 }

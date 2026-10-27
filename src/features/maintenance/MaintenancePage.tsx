@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   backupDatabase,
   exportBackup,
@@ -7,6 +7,8 @@ import {
   restoreDatabase,
 } from "../../api/setup"
 import { useAppInfo } from "../../api/queries"
+import { useLicenseStatus } from "../../api/queries"
+import { activateLicense } from "../../api/license"
 import {
   Button,
   Card,
@@ -23,6 +25,8 @@ import { formatDateTime } from "../../lib/dates"
 export function MaintenancePage() {
   const client = useQueryClient()
   const appInfo = useAppInfo()
+  const license = useLicenseStatus()
+  const [licenseKey, setLicenseKey] = useState("")
 
   const [backups, setBackups] = useState<string[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -32,6 +36,20 @@ export function MaintenancePage() {
   const [restoring, setRestoring] = useState<string | null>(null)
   const [destinationDirectory, setDestinationDirectory] = useState("")
   const [externalBackupPath, setExternalBackupPath] = useState("")
+  const [backupPassphrase, setBackupPassphrase] = useState("")
+  const [confirmBackupPassphrase, setConfirmBackupPassphrase] = useState("")
+  const [restorePassphrase, setRestorePassphrase] = useState("")
+  const activation = useMutation({
+    mutationFn: activateLicense,
+    onSuccess: async () => {
+      setLicenseKey("")
+      await client.invalidateQueries({ queryKey: ["license-status"] })
+    },
+  })
+  const portableRestore = restoring?.toLowerCase().endsWith(".sfsbackup") ?? false
+  const exportPassphrasesMatch =
+    backupPassphrase.length >= 12 &&
+    backupPassphrase === confirmBackupPassphrase
 
   const refresh = async () => {
     setLoading(true)
@@ -51,7 +69,7 @@ export function MaintenancePage() {
     setMessage(null)
     try {
       const path = await backupDatabase()
-      setMessage(`Backup written to ${path}`)
+      setMessage(`Encrypted local backup written to ${path}`)
       await refresh()
     } catch (failure) {
       setError(failure)
@@ -65,8 +83,9 @@ export function MaintenancePage() {
     setError(null)
     setMessage(null)
     try {
-      await restoreDatabase(path)
+      await restoreDatabase(path, portableRestore ? restorePassphrase : undefined)
       setRestoring(null)
+      setRestorePassphrase("")
       // The database behind the app has just been replaced, so every cached
       // query is now wrong.
       await client.invalidateQueries()
@@ -84,8 +103,14 @@ export function MaintenancePage() {
     setError(null)
     setMessage(null)
     try {
-      const exported = await exportBackup(path, destinationDirectory.trim())
-      setMessage(`Backup exported to ${exported}`)
+      const exported = await exportBackup(
+        path,
+        destinationDirectory.trim(),
+        backupPassphrase,
+      )
+      setBackupPassphrase("")
+      setConfirmBackupPassphrase("")
+      setMessage(`Encrypted portable backup exported to ${exported}`)
     } catch (failure) {
       setError(failure)
     } finally {
@@ -117,6 +142,61 @@ export function MaintenancePage() {
         </div>
       ) : null}
 
+      <Card
+        title="License"
+        description="This offline license is tied to this installation. Provide the activation ID to your software provider to receive a signed key."
+      >
+        {license.error ? <ErrorBanner error={license.error} onRetry={() => license.refetch()} /> : null}
+        {license.data ? (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700">
+              {license.data.message}
+              {license.data.licenseSchool ? ` Licensed to ${license.data.licenseSchool}.` : ""}
+              {license.data.expiresOn ? ` Expiry date: ${license.data.expiresOn}.` : ""}
+            </p>
+            <Field
+              label="Device activation ID"
+              htmlFor="license-activation-id"
+              hint="Send this ID to the license issuer. Do not send your database or private signing key."
+            >
+              <Input
+                id="license-activation-id"
+                value={license.data.activationId}
+                readOnly
+                onFocus={(event) => event.currentTarget.select()}
+              />
+            </Field>
+            <Field
+              label="License key"
+              htmlFor="license-key"
+              hint="Paste the signed key supplied for this activation ID."
+            >
+              <Input
+                id="license-key"
+                value={licenseKey}
+                onChange={(event) => setLicenseKey(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="sfs1.…"
+              />
+            </Field>
+            {activation.error ? <ErrorBanner error={activation.error} /> : null}
+            {activation.isSuccess ? (
+              <p className="text-sm text-emerald-700">License activated successfully.</p>
+            ) : null}
+            <Button
+              onClick={() => activation.mutate(licenseKey.trim())}
+              loading={activation.isPending}
+              disabled={!licenseKey.trim()}
+            >
+              Activate license
+            </Button>
+          </div>
+        ) : license.isLoading ? (
+          <Loading />
+        ) : null}
+      </Card>
+
       <Card title="Database">
         <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
           <Item label="Students" value={String(appInfo.data?.studentCount ?? "-")} />
@@ -126,7 +206,13 @@ export function MaintenancePage() {
       </Card>
 
       <Card title="Backups">
-        <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+        <p className="mb-4 text-sm text-slate-600">
+          Local backups are encrypted for this Windows account. Exports are
+          encrypted with a passphrase and can be restored on another Windows
+          account or computer. Keep the passphrase separate from the backup;
+          it cannot be recovered if lost.
+        </p>
+        <div className="mb-4 grid gap-3 sm:grid-cols-2">
           <Field
             label="Off-device destination folder"
             htmlFor="backup-destination"
@@ -139,8 +225,44 @@ export function MaintenancePage() {
               placeholder="E:\SchoolBackups"
             />
           </Field>
-          <p className="pb-2 text-xs text-slate-500">
-            Create a backup first, then export it to this folder.
+          <Field
+            label="Portable backup passphrase"
+            htmlFor="backup-passphrase"
+            hint="Use at least 12 characters. Store it separately from the backup."
+            required
+          >
+            <Input
+              id="backup-passphrase"
+              type="password"
+              autoComplete="new-password"
+              value={backupPassphrase}
+              onChange={(event) => setBackupPassphrase(event.target.value)}
+              placeholder="At least 12 characters"
+            />
+          </Field>
+          <Field
+            label="Confirm passphrase"
+            htmlFor="confirm-backup-passphrase"
+            error={
+              confirmBackupPassphrase && !exportPassphrasesMatch
+                ? "Passphrases must match and be at least 12 characters."
+                : undefined
+            }
+            required
+          >
+            <Input
+              id="confirm-backup-passphrase"
+              type="password"
+              autoComplete="new-password"
+              value={confirmBackupPassphrase}
+              onChange={(event) =>
+                setConfirmBackupPassphrase(event.target.value)
+              }
+              placeholder="Re-enter the passphrase"
+            />
+          </Field>
+          <p className="self-end pb-2 text-xs text-slate-500">
+            Create a backup first, then export its encrypted copy.
           </p>
         </div>
         {loading ? (
@@ -183,7 +305,9 @@ export function MaintenancePage() {
                   size="sm"
                   variant="secondary"
                   loading={busy}
-                  disabled={!destinationDirectory.trim()}
+                  disabled={
+                    !destinationDirectory.trim() || !exportPassphrasesMatch
+                  }
                   onClick={() => exportSnapshot(path)}
                 >
                   Export
@@ -201,6 +325,24 @@ export function MaintenancePage() {
             contents of the backup. Anything recorded since that backup will be
             lost.
           </p>
+          {portableRestore ? (
+            <Field
+              className="mt-4"
+              label="Backup passphrase"
+              htmlFor="restore-passphrase"
+              hint="Use the passphrase that was set when this backup was exported."
+              required
+            >
+              <Input
+                id="restore-passphrase"
+                type="password"
+                autoComplete="current-password"
+                value={restorePassphrase}
+                onChange={(event) => setRestorePassphrase(event.target.value)}
+                placeholder="Portable backup passphrase"
+              />
+            </Field>
+          ) : null}
           <p className="mt-2 break-all font-mono text-xs text-slate-500">
             {restoring}
           </p>
@@ -208,6 +350,7 @@ export function MaintenancePage() {
             <Button
               variant="danger"
               loading={busy}
+              disabled={portableRestore && restorePassphrase.length < 12}
               onClick={() => restore(restoring)}
             >
               Restore now
@@ -224,19 +367,22 @@ export function MaintenancePage() {
           <Field
             label="Backup file path"
             htmlFor="external-backup-path"
-            hint="Paste the full path to a .db backup on another drive."
+            hint="Choose an encrypted .sfsbackup export for portability, or a .db backup from this Windows account."
           >
             <Input
               id="external-backup-path"
               value={externalBackupPath}
               onChange={(event) => setExternalBackupPath(event.target.value)}
-              placeholder="E:\SchoolBackups\school_backup_20261027_090000.db"
+              placeholder="E:\SchoolBackups\school_backup_20261027_090000.sfsbackup"
             />
           </Field>
           <Button
             variant="danger"
             disabled={!externalBackupPath.trim()}
-            onClick={() => setRestoring(externalBackupPath.trim())}
+            onClick={() => {
+              setRestorePassphrase("")
+              setRestoring(externalBackupPath.trim())
+            }}
           >
             Select for restore
           </Button>

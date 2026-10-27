@@ -13,8 +13,7 @@ impl<'c> SqliteUserRepository<'c> {
     }
 }
 
-const USER_COLUMNS: &str =
-    "id, username, display_name, is_active, created_at, last_login_at";
+const USER_COLUMNS: &str = "id, username, display_name, is_active, created_at, last_login_at";
 
 fn map_user(row: &rusqlite::Row<'_>) -> rusqlite::Result<User> {
     Ok(User {
@@ -56,10 +55,9 @@ impl UserRepository for SqliteUserRepository<'_> {
     }
 
     fn find_by_id(&self, user_id: &str) -> AppResult<Option<User>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {} FROM users WHERE id = ?1",
-            USER_COLUMNS
-        ))?;
+        let mut stmt = self
+            .conn
+            .prepare(&format!("SELECT {} FROM users WHERE id = ?1", USER_COLUMNS))?;
         let mut rows = stmt.query(params![user_id])?;
         match rows.next()? {
             Some(row) => Ok(Some(map_user(row)?)),
@@ -103,27 +101,18 @@ impl UserRepository for SqliteUserRepository<'_> {
             params![password_hash, user_id],
         )?;
         if changed == 0 {
-            return Err(crate::domain::errors::AppError::not_found(
-                "User", user_id,
-            ));
+            return Err(crate::domain::errors::AppError::not_found("User", user_id));
         }
         Ok(())
     }
 
-    fn update_profile(
-        &self,
-        user_id: &str,
-        username: &str,
-        display_name: &str,
-    ) -> AppResult<()> {
+    fn update_profile(&self, user_id: &str, username: &str, display_name: &str) -> AppResult<()> {
         let changed = self.conn.execute(
             "UPDATE users SET username = ?, display_name = ? WHERE id = ?",
             params![username, display_name, user_id],
         )?;
         if changed == 0 {
-            return Err(crate::domain::errors::AppError::not_found(
-                "User", user_id,
-            ));
+            return Err(crate::domain::errors::AppError::not_found("User", user_id));
         }
         Ok(())
     }
@@ -134,9 +123,7 @@ impl UserRepository for SqliteUserRepository<'_> {
             params![is_active, user_id],
         )?;
         if changed == 0 {
-            return Err(crate::domain::errors::AppError::not_found(
-                "User", user_id,
-            ));
+            return Err(crate::domain::errors::AppError::not_found("User", user_id));
         }
         Ok(())
     }
@@ -154,9 +141,7 @@ impl UserRepository for SqliteUserRepository<'_> {
             .conn
             .execute("DELETE FROM users WHERE id = ?", params![user_id])?;
         if changed == 0 {
-            return Err(crate::domain::errors::AppError::not_found(
-                "User", user_id,
-            ));
+            return Err(crate::domain::errors::AppError::not_found("User", user_id));
         }
         Ok(())
     }

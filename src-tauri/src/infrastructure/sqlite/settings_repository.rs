@@ -115,8 +115,10 @@ impl SettingsRepository for SqliteSettingsRepository<'_> {
         match logo_data {
             Some(data) => upsert(self.conn, KEY_LOGO, data),
             None => {
-                self.conn
-                    .execute("DELETE FROM school_settings WHERE key = ?", params![KEY_LOGO])?;
+                self.conn.execute(
+                    "DELETE FROM school_settings WHERE key = ?",
+                    params![KEY_LOGO],
+                )?;
                 Ok(())
             }
         }

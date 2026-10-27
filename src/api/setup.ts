@@ -20,8 +20,13 @@ export function listBackups(): Promise<string[]> {
 export function exportBackup(
   backupPath: string,
   destinationDirectory: string,
+  passphrase: string,
 ): Promise<string> {
-  return call<string>("export_backup", { backupPath, destinationDirectory })
+  return call<string>("export_backup", {
+    backupPath,
+    destinationDirectory,
+    passphrase,
+  })
 }
 
 /**
@@ -30,6 +35,9 @@ export function exportBackup(
  * This replaces the live database, so the caller has to drop every cached
  * query and reload afterwards.
  */
-export function restoreDatabase(backupPath: string): Promise<void> {
-  return call<void>("restore_database", { backupPath })
+export function restoreDatabase(
+  backupPath: string,
+  passphrase?: string,
+): Promise<void> {
+  return call<void>("restore_database", { backupPath, passphrase })
 }

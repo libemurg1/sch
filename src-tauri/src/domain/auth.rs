@@ -94,4 +94,3 @@ pub struct AuthStatus {
     pub has_users: bool,
     pub user: Option<User>,
 }
-

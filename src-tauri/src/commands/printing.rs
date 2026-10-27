@@ -35,9 +35,7 @@ pub fn show_print_dialog(window: WebviewWindow) -> Result<(), String> {
                         return;
                     }
                 };
-                if let Err(error) =
-                    core.ShowPrintUI(COREWEBVIEW2_PRINT_DIALOG_KIND_SYSTEM)
-                {
+                if let Err(error) = core.ShowPrintUI(COREWEBVIEW2_PRINT_DIALOG_KIND_SYSTEM) {
                     *captured.lock().unwrap() = Some(error.to_string());
                 }
             })

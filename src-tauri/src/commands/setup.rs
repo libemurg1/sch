@@ -56,9 +56,15 @@ pub fn list_backups(state: State<'_, AppState>) -> AppResult<Vec<String>> {
 
 /// Restores the database from a backup, replacing the current data.
 #[tauri::command]
-pub fn restore_database(state: State<'_, AppState>, backup_path: String) -> AppResult<()> {
+pub fn restore_database(
+    state: State<'_, AppState>,
+    backup_path: String,
+    passphrase: Option<String>,
+) -> AppResult<()> {
     let _user = state.require_auth()?;
-    state.db.restore_from_backup(&PathBuf::from(backup_path))
+    state
+        .db
+        .restore_from_backup(&PathBuf::from(backup_path), passphrase.as_deref())
 }
 
 /// Copies an application-created backup into a user-selected existing folder.
@@ -67,6 +73,7 @@ pub fn export_backup(
     state: State<'_, AppState>,
     backup_path: String,
     destination_directory: String,
+    passphrase: String,
 ) -> AppResult<String> {
     let _user = state.require_auth()?;
     let source = PathBuf::from(backup_path);
@@ -91,6 +98,9 @@ pub fn export_backup(
         ));
     }
 
-    let exported = backup::export_backup(&source, &PathBuf::from(destination_directory))?;
+    let exported =
+        state
+            .db
+            .export_backup(&source, &PathBuf::from(destination_directory), &passphrase)?;
     Ok(exported.to_string_lossy().into_owned())
 }

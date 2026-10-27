@@ -11,6 +11,13 @@ export interface StudentLike {
   middleName?: string | null
 }
 
+function displayStudentName(student: StudentLike): string {
+  return studentName({
+    firstName: student.firstName ?? "",
+    lastName: student.lastName ?? "",
+  })
+}
+
 export function StudentPicker<T extends StudentLike>({
   id,
   value,
@@ -33,7 +40,7 @@ export function StudentPicker<T extends StudentLike>({
     }
 
     return students.filter((student) => {
-      const label = `${student.studentNumber} ${studentName(student as any)}`.toLowerCase()
+      const label = `${student.studentNumber} ${displayStudentName(student)}`.toLowerCase()
       return label.includes(term)
     })
   }, [search, students])
@@ -54,7 +61,7 @@ export function StudentPicker<T extends StudentLike>({
         <option value="">{placeholder}</option>
         {filteredStudents.map((student) => (
           <option key={student.id} value={student.id}>
-            {student.studentNumber} - {studentName(student as any)}
+            {student.studentNumber} - {displayStudentName(student)}
           </option>
         ))}
       </Select>

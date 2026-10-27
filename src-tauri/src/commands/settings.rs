@@ -15,7 +15,7 @@ pub fn update_school_settings(
     state: State<'_, AppState>,
     input: UpdateSchoolSettingsInput,
 ) -> AppResult<SchoolSettings> {
-    let _user = state.require_auth()?;
+    let _user = state.require_write_auth()?;
     SettingsService::update(&state.db, &input)
 }
 
@@ -24,6 +24,6 @@ pub fn set_logo(
     state: State<'_, AppState>,
     logo_data: Option<String>,
 ) -> AppResult<SchoolSettings> {
-    let _user = state.require_auth()?;
+    let _user = state.require_write_auth()?;
     SettingsService::set_logo(&state.db, logo_data)
 }

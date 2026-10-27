@@ -63,7 +63,7 @@ export function formatMoney(cents: number): string {
  * validation message instead of silently billing zero.
  */
 export function parseMoneyToCents(input: string): number | null {
-  const cleaned = input.trim().replace(/[^0-9.\-]/g, "")
+  const cleaned = input.trim().replace(/[^0-9.-]/g, "")
   if (cleaned === "" || cleaned === "-" || cleaned === "." || cleaned === "-.") {
     return null
   }
@@ -104,7 +104,7 @@ export function parseMoneyToCents(input: string): number | null {
 
 /** Parses a plain integer count of cents, used for raw cent inputs. */
 export function parseCents(input: string): number | null {
-  const cleaned = input.trim().replace(/[^0-9\-]/g, "")
+  const cleaned = input.trim().replace(/[^0-9-]/g, "")
   if (cleaned === "" || cleaned === "-" || !/^-?\d+$/.test(cleaned)) {
     return null
   }

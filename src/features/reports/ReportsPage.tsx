@@ -23,13 +23,14 @@ export function ReportsPage() {
   const [startDate, setStartDate] = useState("")
   const report = useFinanceReport(startDate, endDate)
   const audit = useAuditEntries()
+  const today = appInfo.data?.today
 
   useEffect(() => {
-    if (appInfo.data?.today) {
-      setEndDate((current) => current || appInfo.data!.today)
-      setStartDate((current) => current || `${appInfo.data!.today.slice(0, 7)}-01`)
+    if (today) {
+      setEndDate((current) => current || today)
+      setStartDate((current) => current || `${today.slice(0, 7)}-01`)
     }
-  }, [appInfo.data?.today])
+  }, [today])
 
   const termColumns: Column<TermBalanceSummary>[] = [
     { key: "term", header: "Term", render: (row) => row.label },

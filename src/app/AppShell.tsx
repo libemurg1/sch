@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react"
 import { NavLink, Outlet } from "react-router-dom"
-import { useActiveTerm, useAppInfo } from "../api/queries"
+import { useActiveTerm, useAppInfo, useLicenseStatus } from "../api/queries"
 import { DeveloperNote } from "../components"
 import { useSchoolSettings, useSession } from "./session"
 import { cx } from "../lib/cx"
@@ -55,6 +55,7 @@ const NAV: NavGroup[] = [
 export function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false)
   const appInfo = useAppInfo()
+  const license = useLicenseStatus()
   const activeTerm = useActiveTerm()
   const { settings } = useSchoolSettings()
   const { user, logout } = useSession()
@@ -201,6 +202,27 @@ export function AppShell() {
             </div>
           </div>
         </header>
+
+        {license.data && license.data.state !== "active" ? (
+          <div
+            className={cx(
+              "no-print px-4 py-2 text-sm sm:px-6 lg:px-8",
+              license.data.state === "readOnly"
+                ? "bg-rose-100 text-rose-900"
+                : license.data.state === "grace"
+                  ? "bg-amber-100 text-amber-900"
+                  : "bg-indigo-50 text-indigo-900",
+            )}
+            role="status"
+          >
+            {license.data.state === "trial"
+              ? `Trial: ${license.data.trialDaysRemaining} day${license.data.trialDaysRemaining === 1 ? "" : "s"} remaining.`
+              : license.data.state === "grace"
+                ? `License grace period: ${license.data.graceDaysRemaining} day${license.data.graceDaysRemaining === 1 ? "" : "s"} remaining.`
+                : license.data.message}
+            {" "}Open System &gt; Maintenance for license activation details.
+          </div>
+        ) : null}
 
         <main className="px-4 py-6 sm:px-6 lg:px-8">
           <Outlet />

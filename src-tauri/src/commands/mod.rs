@@ -3,6 +3,7 @@ pub mod billing;
 pub mod discounts;
 pub mod enrollment;
 pub mod fee_structures;
+pub mod license;
 pub mod payments;
 pub mod printing;
 pub mod promotion;

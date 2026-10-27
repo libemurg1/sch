@@ -67,6 +67,7 @@ Before running the app, install:
 - Rust toolchain via `rustup`
 - Tauri prerequisites for your OS
   - Windows: Visual Studio 2022 Build Tools + WebView2 runtime
+  - Windows release builds: Perl (used to build SQLCipher's vendored OpenSSL)
 
 ## Getting Started
 
@@ -93,6 +94,93 @@ To create a production desktop build:
 ```bash
 npm run tauri build
 ```
+
+Run the frontend checks before building:
+
+```bash
+npm test
+npm run lint
+npm run typecheck
+npm audit
+```
+
+The Windows CI workflow runs those frontend checks and the Rust test suite on
+pushes and pull requests.
+
+## Offline license issuer
+
+The desktop app verifies signed offline license keys. It contains only the
+public verification key; the private signing key is stored separately by the
+software provider and must never be copied into the app or committed to source
+control.
+
+Build the private issuer utility from a Windows development machine with Rust:
+
+```powershell
+cargo build --release --manifest-path tools/license-issuer/Cargo.toml
+```
+
+Create the signing key once, if it has not already been initialized. By
+default, the utility stores it under the current Windows user's local
+application data and protects it with DPAPI:
+
+```powershell
+tools\license-issuer\target\release\sfs-license-issuer.exe init
+```
+
+The command prints the public verification key. It is already initialized for
+this source tree; use `public-key` to display it again:
+
+```powershell
+tools\license-issuer\target\release\sfs-license-issuer.exe public-key
+```
+
+The key in `src-tauri/license-public-key.txt` must match that value; the issuer
+refuses to create keys if the private key does not match the app's trusted
+public key. Do not initialize a second signing key unless you also plan a
+signed-app update that trusts its new public key; existing installed versions
+will only trust the public key they were built with.
+
+Create and store an encrypted, portable backup of the private signing key.
+The utility prompts for a passphrase (minimum 12 characters):
+
+```powershell
+tools\license-issuer\target\release\sfs-license-issuer.exe export-key `
+  E:\SecureBackups\sfs-signing-key.sfskey
+```
+
+Keep that file and its passphrase separately and securely. To restore it on a
+replacement issuer computer, copy the backup there and run:
+
+```powershell
+tools\license-issuer\target\release\sfs-license-issuer.exe import-key `
+  E:\SecureBackups\sfs-signing-key.sfskey
+```
+
+To issue an annual key, ask the school for its activation ID from
+**System > Maintenance > License**, then run:
+
+```powershell
+tools\license-issuer\target\release\sfs-license-issuer.exe issue `
+  --activation-id "DEVICE-ACTIVATION-ID" `
+  --school "Example School" `
+  --starts-on 2026-10-27 `
+  --expires-on 2027-10-26
+```
+
+Send the resulting `sfs1...` key to that school. The key is bound to the
+activation ID and will not activate another device. The issuer is an offline
+tool; it does not contact a server. Consequently, keys cannot be remotely
+revoked and device transfers require provider intervention. The app allows a
+14-day first-launch trial, a five-day grace period after trial/license expiry,
+then permits read-only access and backups.
+
+The issuer does not process payments or maintain a customer subscription
+database. Maintain a separate, access-controlled customer/license register
+with school, activation ID, payment status, start/expiry dates, and any
+replacement-device decisions. Since licensing is offline, the rule not to
+replace a device before expiry is an issuer operating policy, not a remotely
+enforced safeguard.
 
 ## Building a Windows Installer (.exe or .msi)
 
@@ -216,6 +304,20 @@ The application is built around a few important financial rules:
 
 The app stores data in a local SQLite database managed by the Rust backend. The database is initialized and migrated through SQL files in the `src-tauri/migrations` folder.
 
+On Windows, the live database and local snapshots use SQLCipher encryption.
+The database key is protected by Windows DPAPI for the current Windows user;
+local `.db` snapshots are therefore intended to be restored under that same
+Windows user profile. The first launch after upgrading encrypts the existing
+database and valid local snapshots, taking a migration snapshot before
+upgrading the live database.
+
+Use Maintenance to export a portable `.sfsbackup` file for another computer or
+Windows account. Portable exports are encrypted by SQLCipher using a
+passphrase of at least 12 characters. The passphrase is not stored by the
+application; losing it makes that export unrecoverable. Copies of old,
+pre-encryption `.db` backups on removable drives were not migrated
+automatically and should be treated as unencrypted.
+
 ## Notes
 
 - The app is intended for local/offline use, not a multi-user web deployment.
@@ -223,8 +325,12 @@ The app stores data in a local SQLite database managed by the Rust backend. The 
   does not implement role-based permissions; any additional active account
   also has full access.
 - Backups are initially stored beside the app's local data. Use Maintenance to
-  export a backup to an existing folder on a removable or external drive.
-  Keep at least one copy separate from the computer that runs the app.
+  export a passphrase-protected copy to an existing folder on a removable or
+  external drive. Keep at least one copy separate from the computer that runs
+  the app, and keep its passphrase separately.
+- Database encryption currently depends on the Windows user profile. Protect
+  that profile and the machine with Windows account controls and full-disk
+  encryption; use portable encrypted exports for disaster recovery.
 - Most financial operations are implemented in the Rust backend to keep business logic centralized and consistent.
 - The frontend acts as a desktop UI layer over Tauri commands and the local database.
 

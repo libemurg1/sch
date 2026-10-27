@@ -13,6 +13,9 @@
         "maximized": true,
         "additionalBrowserArgs": "--remote-debugging-port=9222"
       }
-    ]
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://localhost:5173 ws://localhost:5173; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'; img-src 'self' asset: http://asset.localhost data:; font-src 'self' data:"
+    }
   }
 }

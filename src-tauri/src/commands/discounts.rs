@@ -16,7 +16,7 @@ pub fn create_discount(
     state: State<'_, AppState>,
     input: CreateDiscountInput,
 ) -> AppResult<Discount> {
-    let user = state.require_auth()?;
+    let user = state.require_write_auth()?;
     DiscountService::create(&state.db, input, &user.id)
 }
 
@@ -35,7 +35,7 @@ pub fn assign_discount(
     state: State<'_, AppState>,
     input: AssignDiscountInput,
 ) -> AppResult<StudentDiscount> {
-    let user = state.require_auth()?;
+    let user = state.require_write_auth()?;
     DiscountService::assign(&state.db, input, &user.id)
 }
 
@@ -51,6 +51,6 @@ pub fn revoke_discount(
     grant_id: String,
     reason: String,
 ) -> AppResult<StudentDiscount> {
-    let user = state.require_auth()?;
+    let user = state.require_write_auth()?;
     DiscountService::revoke(&state.db, &grant_id, &user.id, &reason)
 }

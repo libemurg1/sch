@@ -1,7 +1,5 @@
 use crate::application::auth_service::AuthService;
-use crate::domain::auth::{
-    AuthStatus, ChangePasswordInput, CreateUserInput, User,
-};
+use crate::domain::auth::{AuthStatus, ChangePasswordInput, CreateUserInput, User};
 use crate::domain::errors::AppResult;
 use crate::AppState;
 use tauri::State;
@@ -14,7 +12,10 @@ pub fn get_auth_status(state: State<'_, AppState>) -> AppResult<AuthStatus> {
 }
 
 #[tauri::command]
-pub fn login(state: State<'_, AppState>, input: crate::domain::auth::LoginInput) -> AppResult<User> {
+pub fn login(
+    state: State<'_, AppState>,
+    input: crate::domain::auth::LoginInput,
+) -> AppResult<User> {
     {
         let guard = state.login_guard.lock().map_err(|_| {
             crate::domain::errors::AppError::new("LOCKED", "Application state lock poisoned")
@@ -68,10 +69,7 @@ pub fn get_current_user(state: State<'_, AppState>) -> AppResult<Option<User>> {
 }
 
 #[tauri::command]
-pub fn create_user(
-    state: State<'_, AppState>,
-    input: CreateUserInput,
-) -> AppResult<User> {
+pub fn create_user(state: State<'_, AppState>, input: CreateUserInput) -> AppResult<User> {
     let authenticated = state.current_user()?.is_some();
     AuthService::create_user(&state.db, &input, authenticated)
 }
@@ -83,10 +81,7 @@ pub fn list_users(state: State<'_, AppState>) -> AppResult<Vec<User>> {
 }
 
 #[tauri::command]
-pub fn change_password(
-    state: State<'_, AppState>,
-    input: ChangePasswordInput,
-) -> AppResult<()> {
+pub fn change_password(state: State<'_, AppState>, input: ChangePasswordInput) -> AppResult<()> {
     let user = state.require_auth()?;
     AuthService::change_password(&state.db, &user.id, &input)
 }

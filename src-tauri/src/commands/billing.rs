@@ -10,7 +10,7 @@ pub fn generate_invoice_batch(
     state: State<'_, AppState>,
     input: GenerateBatchInput,
 ) -> AppResult<Vec<Invoice>> {
-    let user = state.require_auth()?;
+    let user = state.require_write_auth()?;
     BillingService::generate_batch(&state.db, input, &user.id)
 }
 
@@ -19,7 +19,7 @@ pub fn generate_supplementary_invoice(
     state: State<'_, AppState>,
     input: GenerateSupplementaryInput,
 ) -> AppResult<Option<Invoice>> {
-    let user = state.require_auth()?;
+    let user = state.require_write_auth()?;
     BillingService::create_supplementary(&state.db, input, &user.id)
 }
 
@@ -29,7 +29,7 @@ pub fn assign_student_fee(
     state: State<'_, AppState>,
     input: AssignStudentFeeInput,
 ) -> AppResult<StudentFee> {
-    let user = state.require_auth()?;
+    let user = state.require_write_auth()?;
     BillingService::assign_student_fee(&state.db, input, &user.id)
 }
 
@@ -39,7 +39,7 @@ pub fn cancel_invoice(
     invoice_id: String,
     reason: String,
 ) -> AppResult<Invoice> {
-    let user = state.require_auth()?;
+    let user = state.require_write_auth()?;
     BillingService::cancel_invoice(&state.db, &invoice_id, &user.id, &reason)
 }
 

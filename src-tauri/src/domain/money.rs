@@ -51,11 +51,19 @@ impl Money {
     }
 
     pub fn min(self, other: Money) -> Money {
-        if self.0 < other.0 { self } else { other }
+        if self.0 < other.0 {
+            self
+        } else {
+            other
+        }
     }
 
     pub fn max(self, other: Money) -> Money {
-        if self.0 > other.0 { self } else { other }
+        if self.0 > other.0 {
+            self
+        } else {
+            other
+        }
     }
 
     pub fn abs(self) -> Money {
@@ -95,7 +103,10 @@ mod tests {
     #[test]
     fn applies_basis_points() {
         assert_eq!(Money::from_cents(10_000).mul_percent(1000).cents(), 1_000);
-        assert_eq!(Money::from_cents(10_000).mul_percent(10_000).cents(), 10_000);
+        assert_eq!(
+            Money::from_cents(10_000).mul_percent(10_000).cents(),
+            10_000
+        );
         assert_eq!(Money::from_cents(10_000).mul_percent(0).cents(), 0);
     }
 

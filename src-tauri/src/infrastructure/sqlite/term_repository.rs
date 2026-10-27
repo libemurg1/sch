@@ -105,9 +105,7 @@ impl TermRepository for SqliteTermRepository<'_> {
             ],
         )?;
         if changed == 0 {
-            return Err(crate::domain::errors::AppError::not_found(
-                "Term", &term.id,
-            ));
+            return Err(crate::domain::errors::AppError::not_found("Term", &term.id));
         }
         Ok(())
     }
@@ -117,9 +115,7 @@ impl TermRepository for SqliteTermRepository<'_> {
             .conn
             .execute("DELETE FROM terms WHERE id = ?", params![id])?;
         if changed == 0 {
-            return Err(crate::domain::errors::AppError::not_found(
-                "Term", id,
-            ));
+            return Err(crate::domain::errors::AppError::not_found("Term", id));
         }
         Ok(())
     }
