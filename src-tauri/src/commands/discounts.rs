@@ -1,4 +1,5 @@
 use crate::application::discount_service::DiscountService;
+use crate::domain::auth::Permission;
 use crate::domain::dto::{AssignDiscountInput, CreateDiscountInput};
 use crate::domain::entities::{Discount, StudentDiscount};
 use crate::domain::errors::AppResult;
@@ -16,7 +17,7 @@ pub fn create_discount(
     state: State<'_, AppState>,
     input: CreateDiscountInput,
 ) -> AppResult<Discount> {
-    let user = state.require_write_auth()?;
+    let user = state.require_write_permission(Permission::ManageDiscounts)?;
     DiscountService::create(&state.db, input, &user.id)
 }
 
@@ -35,7 +36,7 @@ pub fn assign_discount(
     state: State<'_, AppState>,
     input: AssignDiscountInput,
 ) -> AppResult<StudentDiscount> {
-    let user = state.require_write_auth()?;
+    let user = state.require_write_permission(Permission::ManageDiscounts)?;
     DiscountService::assign(&state.db, input, &user.id)
 }
 
@@ -51,6 +52,6 @@ pub fn revoke_discount(
     grant_id: String,
     reason: String,
 ) -> AppResult<StudentDiscount> {
-    let user = state.require_write_auth()?;
+    let user = state.require_write_permission(Permission::ManageDiscounts)?;
     DiscountService::revoke(&state.db, &grant_id, &user.id, &reason)
 }

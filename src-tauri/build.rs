@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 fn main() {
+    println!("cargo:rerun-if-changed=icons/icon.ico");
     tauri_build::build();
     generate_migrations();
 }

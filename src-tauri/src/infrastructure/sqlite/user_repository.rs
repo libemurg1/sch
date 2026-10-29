@@ -13,29 +13,38 @@ impl<'c> SqliteUserRepository<'c> {
     }
 }
 
-const USER_COLUMNS: &str = "id, username, display_name, is_active, created_at, last_login_at";
+const USER_COLUMNS: &str = "id, username, display_name, role, is_active, created_at, last_login_at";
 
 fn map_user(row: &rusqlite::Row<'_>) -> rusqlite::Result<User> {
     Ok(User {
         id: row.get(0)?,
         username: row.get(1)?,
         display_name: row.get(2)?,
-        is_active: row.get(3)?,
-        created_at: row.get(4)?,
-        last_login_at: row.get(5)?,
+        role: match row.get::<_, String>(3)?.as_str() {
+            "SCHOOL_ADMINISTRATOR" => crate::domain::auth::UserRole::SchoolAdministrator,
+            "BURSAR" => crate::domain::auth::UserRole::Bursar,
+            _ => return Err(rusqlite::Error::InvalidQuery),
+        },
+        is_active: row.get(4)?,
+        created_at: row.get(5)?,
+        last_login_at: row.get(6)?,
     })
 }
 
 impl UserRepository for SqliteUserRepository<'_> {
     fn create(&self, user: &User, password_hash: &str) -> AppResult<()> {
         self.conn.execute(
-            "INSERT INTO users (id, username, password_hash, display_name, is_active) \
-             VALUES (?,?,?,?,?)",
+            "INSERT INTO users (id, username, password_hash, display_name, role, is_active) \
+             VALUES (?,?,?,?,?,?)",
             params![
                 user.id,
                 user.username,
                 password_hash,
                 user.display_name,
+                match user.role {
+                    crate::domain::auth::UserRole::SchoolAdministrator => "SCHOOL_ADMINISTRATOR",
+                    crate::domain::auth::UserRole::Bursar => "BURSAR",
+                },
                 user.is_active,
             ],
         )?;
@@ -106,10 +115,24 @@ impl UserRepository for SqliteUserRepository<'_> {
         Ok(())
     }
 
-    fn update_profile(&self, user_id: &str, username: &str, display_name: &str) -> AppResult<()> {
+    fn update_profile(
+        &self,
+        user_id: &str,
+        username: &str,
+        display_name: &str,
+        role: crate::domain::auth::UserRole,
+    ) -> AppResult<()> {
         let changed = self.conn.execute(
-            "UPDATE users SET username = ?, display_name = ? WHERE id = ?",
-            params![username, display_name, user_id],
+            "UPDATE users SET username = ?, display_name = ?, role = ? WHERE id = ?",
+            params![
+                username,
+                display_name,
+                match role {
+                    crate::domain::auth::UserRole::SchoolAdministrator => "SCHOOL_ADMINISTRATOR",
+                    crate::domain::auth::UserRole::Bursar => "BURSAR",
+                },
+                user_id,
+            ],
         )?;
         if changed == 0 {
             return Err(crate::domain::errors::AppError::not_found("User", user_id));

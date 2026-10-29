@@ -1,6 +1,7 @@
 use crate::application::billing_service::BillingService;
 use crate::application::today;
-use crate::domain::dto::AppInfo;
+use crate::domain::auth::Permission;
+use crate::domain::dto::{AppInfo, DatabaseHealth};
 use crate::domain::errors::{AppError, AppResult};
 use crate::infrastructure::backup;
 use crate::AppState;
@@ -35,10 +36,16 @@ pub fn get_app_info(state: State<'_, AppState>) -> AppResult<AppInfo> {
     })
 }
 
+#[tauri::command]
+pub fn get_database_health(state: State<'_, AppState>) -> AppResult<DatabaseHealth> {
+    let _user = state.require_permission(Permission::ManageSettings)?;
+    state.db.health_report()
+}
+
 /// Creates a consistent snapshot of the database and returns its path.
 #[tauri::command]
 pub fn backup_database(state: State<'_, AppState>) -> AppResult<String> {
-    let _user = state.require_auth()?;
+    let _user = state.require_permission(Permission::ManageSettings)?;
     let path = state.db.backup(&app_dir(&state)?)?;
     Ok(path.to_string_lossy().into_owned())
 }
@@ -46,7 +53,7 @@ pub fn backup_database(state: State<'_, AppState>) -> AppResult<String> {
 /// Lists the available backups, newest first.
 #[tauri::command]
 pub fn list_backups(state: State<'_, AppState>) -> AppResult<Vec<String>> {
-    let _user = state.require_auth()?;
+    let _user = state.require_permission(Permission::ManageSettings)?;
     let backups = backup::list_backups(&app_dir(&state)?)?;
     Ok(backups
         .into_iter()
@@ -61,10 +68,24 @@ pub fn restore_database(
     backup_path: String,
     passphrase: Option<String>,
 ) -> AppResult<()> {
-    let _user = state.require_auth()?;
+    let _user = state.require_permission(Permission::ManageSettings)?;
+    crate::infrastructure::remembered_session::clear(&state.remembered_session_path)?;
     state
         .db
-        .restore_from_backup(&PathBuf::from(backup_path), passphrase.as_deref())
+        .restore_from_backup(&PathBuf::from(backup_path), passphrase.as_deref())?;
+    *state
+        .session
+        .lock()
+        .map_err(|_| AppError::new("LOCKED", "Application state lock poisoned"))? = None;
+    *state
+        .remembered_session_token
+        .lock()
+        .map_err(|_| AppError::new("LOCKED", "Application state lock poisoned"))? = None;
+    state.db.with_conn(|conn| {
+        conn.execute("DELETE FROM remembered_sessions", [])?;
+        Ok(())
+    })?;
+    Ok(())
 }
 
 /// Copies an application-created backup into a user-selected existing folder.
@@ -75,7 +96,7 @@ pub fn export_backup(
     destination_directory: String,
     passphrase: String,
 ) -> AppResult<String> {
-    let _user = state.require_auth()?;
+    let _user = state.require_permission(Permission::ManageSettings)?;
     let source = PathBuf::from(backup_path);
     let known_backups = backup::list_backups(&app_dir(&state)?)?;
     let source_canonical = source.canonicalize().map_err(|error| {

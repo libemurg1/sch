@@ -2,8 +2,9 @@ use crate::domain::errors::{AppError, AppResult};
 use crate::infrastructure::backup;
 use crate::infrastructure::protected_key;
 use argon2::password_hash::rand_core::{OsRng, RngCore};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
@@ -21,6 +22,7 @@ pub struct Db {
     conn: Mutex<Connection>,
     app_dir: PathBuf,
     key: Vec<u8>,
+    startup_recovery_notice: Option<String>,
 }
 
 impl Db {
@@ -29,8 +31,75 @@ impl Db {
     pub fn open(app_dir: &Path) -> AppResult<Self> {
         fs::create_dir_all(app_dir)?;
         let db_path = app_dir.join("school.db");
-        let key = load_or_create_database_key(app_dir)?;
-        let conn = open_or_encrypt_database(&db_path, app_dir, &key)?;
+        let (key, conn, startup_recovery_notice) =
+            match load_or_create_database_key(app_dir) {
+                Ok(key) => {
+                    match open_or_encrypt_database(&db_path, app_dir, &key) {
+                        Ok(conn) => (key, conn, None),
+                        Err(open_error) => {
+                            match restore_from_latest_backup(&db_path, app_dir, &key) {
+                        Ok((conn, backup_path, archive_path)) => (
+                            key,
+                            conn,
+                            Some(format!(
+                                "The database could not be opened, so it was recovered from {}. The damaged database was preserved at {}. Confirm recent records and create a new off-device backup.",
+                                backup_path.display(),
+                                archive_path.display()
+                            )),
+                        ),
+                        Err(local_recovery_error) => {
+                            let archive_path =
+                                archive_for_portable_restore(&db_path, app_dir, false)?;
+                            let conn = open_valid_database(&db_path, &key).map_err(|error| {
+                                AppError::new(
+                                    "DATABASE_RECOVERY_FAILED",
+                                    format!(
+                                        "The database could not be opened: {}. Local recovery failed: {}. A clean recovery database could not be initialized: {}",
+                                        open_error, local_recovery_error, error
+                                    ),
+                                )
+                            })?;
+                            (
+                                key,
+                                conn,
+                                Some(format!(
+                                    "The database could not be opened and no usable local backup was available. The old database and local backups were preserved at {}. This is a new, empty recovery database. Before entering records, create an administrator account and restore an encrypted portable backup from System > Maintenance. If no portable backup exists, keep the archived files and contact support.",
+                                    archive_path.display()
+                                )),
+                            )
+                        }
+                    }
+                        }
+                    }
+                }
+                Err(error)
+                    if matches!(
+                        error.code.as_str(),
+                        "DB_KEY_MISSING" | "KEY_UNPROTECTION_FAILED"
+                    ) =>
+                {
+                    let archive_path = archive_for_portable_restore(&db_path, app_dir, true)?;
+                    let key = create_database_key(app_dir)?;
+                    let conn = open_valid_database(&db_path, &key).map_err(|init_error| {
+                    AppError::new(
+                        "DATABASE_RECOVERY_FAILED",
+                        format!(
+                            "The database key could not be used and a clean recovery database could not be initialized: {}",
+                            init_error
+                        ),
+                    )
+                })?;
+                    (
+                    key,
+                    conn,
+                    Some(format!(
+                        "The protected database key could not be used. The old database, key, and local backups were preserved at {}. This is a new, empty recovery database. Before entering records, create an administrator account and restore an encrypted portable backup from System > Maintenance. If no portable backup exists, keep the archived files and contact support.",
+                        archive_path.display()
+                    )),
+                )
+                }
+                Err(error) => return Err(error),
+            };
 
         let current_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         let known_version = MIGRATIONS.len() as i32;
@@ -59,7 +128,12 @@ impl Db {
             conn: Mutex::new(conn),
             app_dir: app_dir.to_path_buf(),
             key,
+            startup_recovery_notice,
         })
+    }
+
+    pub fn startup_recovery_notice(&self) -> Option<String> {
+        self.startup_recovery_notice.clone()
     }
 
     /// Runs `f` with the shared connection outside of any transaction.
@@ -96,6 +170,38 @@ impl Db {
     pub fn backup(&self, app_dir: &Path) -> AppResult<PathBuf> {
         let conn = self.lock()?;
         backup::backup_database(&conn, app_dir, Some(&self.key))
+    }
+
+    pub fn health_report(&self) -> AppResult<crate::domain::dto::DatabaseHealth> {
+        let conn = self.lock()?;
+        let schema_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let integrity_check: String = conn.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
+        let foreign_keys_ok = conn
+            .query_row("PRAGMA foreign_key_check", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()?
+            .is_none();
+
+        let backups = backup::list_backups(&self.app_dir)?;
+        let latest_backup_path = backups.first();
+        let latest_backup_status = latest_backup_path.map(|path| {
+            match backup::validate_backup(path, MIGRATIONS.len() as i32, Some(&self.key)) {
+                Ok(()) => "Verified and readable".to_string(),
+                Err(error) => format!("Verification failed: {}", error.message),
+            }
+        });
+
+        Ok(crate::domain::dto::DatabaseHealth {
+            checked_at: crate::application::now_iso(),
+            schema_version,
+            expected_schema_version: MIGRATIONS.len() as i32,
+            integrity_check,
+            foreign_keys_ok,
+            backup_count: backups.len(),
+            latest_backup_path: latest_backup_path.map(|path| path.to_string_lossy().into_owned()),
+            latest_backup_status,
+        })
     }
 
     pub fn export_backup(
@@ -147,11 +253,61 @@ impl Db {
         };
 
         let mut conn = self.lock()?;
-        backup::backup_database(&conn, &self.app_dir, Some(&self.key))?;
-        backup::restore_from_connection(&source, &mut conn)?;
-        apply_migrations(&conn)?;
+        let safety_path = backup::backup_database(&conn, &self.app_dir, Some(&self.key))?;
+        let safety_source = backup::open_local_backup(&safety_path, &self.key, max_schema_version)?;
+        let restore_result = (|| -> AppResult<()> {
+            backup::restore_from_connection(&source, &mut conn)?;
+            apply_migrations(&conn)?;
+            verify_restored_database(&conn)?;
+            Ok(())
+        })();
+
+        if let Err(restore_error) = restore_result {
+            let rollback_result = backup::restore_from_connection(&safety_source, &mut conn)
+                .and_then(|_| apply_migrations(&conn))
+                .and_then(|_| verify_restored_database(&conn));
+            if let Err(rollback_error) = rollback_result {
+                return Err(AppError::new(
+                    "RESTORE_RECOVERY_FAILED",
+                    format!(
+                        "Restore failed: {}. The automatic rollback also failed: {}. Keep the application closed and contact support.",
+                        restore_error, rollback_error
+                    ),
+                ));
+            }
+            return Err(AppError::new(
+                "RESTORE_FAILED_ROLLED_BACK",
+                format!(
+                    "Restore failed and the original database was recovered: {}",
+                    restore_error
+                ),
+            ));
+        }
+
         Ok(())
     }
+}
+
+fn verify_restored_database(conn: &Connection) -> AppResult<()> {
+    let integrity: String = conn.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
+    if integrity != "ok" {
+        return Err(AppError::new(
+            "RESTORE_FAILED",
+            format!("The restored database failed its integrity check: {integrity}"),
+        ));
+    }
+    let foreign_key_error: Option<(String, Option<i64>, String, i64)> = conn
+        .query_row("PRAGMA foreign_key_check", [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .optional()?;
+    if foreign_key_error.is_some() {
+        return Err(AppError::new(
+            "RESTORE_FAILED",
+            "The restored database contains broken record relationships",
+        ));
+    }
+    Ok(())
 }
 
 fn load_or_create_database_key(app_dir: &Path) -> AppResult<Vec<u8>> {
@@ -159,7 +315,23 @@ fn load_or_create_database_key(app_dir: &Path) -> AppResult<Vec<u8>> {
     if key_path.exists() {
         return read_database_key(&key_path);
     }
+    let database_path = app_dir.join("school.db");
+    if database_path.exists() && fs::metadata(&database_path)?.len() > 0 {
+        let mut file = fs::File::open(database_path)?;
+        let mut header = [0; 16];
+        if file.read_exact(&mut header).is_err() || &header != b"SQLite format 3\0" {
+            return Err(AppError::new(
+                "DB_KEY_MISSING",
+                "The protected database key is missing. Do not reinstall or reset the Windows account; restore an encrypted portable backup with its passphrase.",
+            ));
+        }
+    }
 
+    create_database_key(app_dir)
+}
+
+fn create_database_key(app_dir: &Path) -> AppResult<Vec<u8>> {
+    let key_path = app_dir.join("school.db.key");
     let mut key = vec![0; 32];
     OsRng.fill_bytes(&mut key);
     let protected = protected_key::protect_key(&key)?;
@@ -223,6 +395,165 @@ fn open_or_encrypt_database(path: &Path, app_dir: &Path, key: &[u8]) -> AppResul
     }
 
     open_valid_database(path, key)
+}
+
+fn restore_from_latest_backup(
+    database_path: &Path,
+    app_dir: &Path,
+    key: &[u8],
+) -> AppResult<(Connection, PathBuf, PathBuf)> {
+    let backups = backup::list_backups(app_dir)?;
+    let mut last_error = None;
+    for backup_path in backups {
+        let source = match backup::open_local_backup(&backup_path, key, MIGRATIONS.len() as i32) {
+            Ok(source) => source,
+            Err(error) => {
+                last_error = Some(error);
+                continue;
+            }
+        };
+        let temporary_path =
+            app_dir.join(format!("school.db.restore-{}.tmp", uuid::Uuid::new_v4()));
+        let restore_result = (|| -> AppResult<()> {
+            let mut replacement = Connection::open(&temporary_path)?;
+            backup::set_database_key(&replacement, key)?;
+            backup::restore_from_connection(&source, &mut replacement)?;
+            apply_migrations(&replacement)?;
+            verify_restored_database(&replacement)?;
+            drop(replacement);
+            Ok(())
+        })();
+        if let Err(error) = restore_result {
+            let _ = fs::remove_file(&temporary_path);
+            last_error = Some(error);
+            continue;
+        }
+        drop(source);
+
+        let archive_path =
+            match archive_and_install_recovered_database(database_path, &temporary_path, app_dir) {
+                Ok(path) => path,
+                Err(error) => {
+                    let _ = fs::remove_file(&temporary_path);
+                    return Err(error);
+                }
+            };
+        let conn = open_valid_database(database_path, key)?;
+        return Ok((conn, backup_path, archive_path));
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        AppError::new("BACKUP_FAILED", "No local database backups are available")
+    }))
+}
+
+fn archive_and_install_recovered_database(
+    database_path: &Path,
+    replacement_path: &Path,
+    app_dir: &Path,
+) -> AppResult<PathBuf> {
+    let archive_path = app_dir.join(format!("school.db.damaged-{}", uuid::Uuid::new_v4()));
+    fs::create_dir(&archive_path)?;
+    let mut moved_files = Vec::new();
+
+    for suffix in ["", "-wal", "-shm"] {
+        let mut source_name = database_path.as_os_str().to_os_string();
+        source_name.push(suffix);
+        let source = PathBuf::from(source_name);
+        if !source.exists() {
+            continue;
+        }
+        let file_name = source
+            .file_name()
+            .ok_or_else(|| AppError::validation("The database path has no file name"))?;
+        let archived = archive_path.join(file_name);
+        if let Err(error) = fs::rename(&source, &archived) {
+            restore_archived_files(&moved_files).map_err(|restore_error| {
+                AppError::new(
+                    "DATABASE_RECOVERY_FAILED",
+                    format!(
+                        "Could not preserve the damaged database: {}. Reinstating its files also failed: {}",
+                        error, restore_error
+                    ),
+                )
+            })?;
+            let _ = fs::remove_dir(&archive_path);
+            return Err(AppError::from(error));
+        }
+        moved_files.push((source, archived));
+    }
+
+    if let Err(error) = fs::rename(replacement_path, database_path) {
+        restore_archived_files(&moved_files).map_err(|restore_error| {
+            AppError::new(
+                "DATABASE_RECOVERY_FAILED",
+                format!(
+                    "Could not install the recovered database: {}. Reinstating the damaged database also failed: {}",
+                    error, restore_error
+                ),
+            )
+        })?;
+        let _ = fs::remove_dir(&archive_path);
+        return Err(AppError::from(error));
+    }
+
+    Ok(archive_path)
+}
+
+fn archive_for_portable_restore(
+    database_path: &Path,
+    app_dir: &Path,
+    include_key: bool,
+) -> AppResult<PathBuf> {
+    let archive_path = app_dir.join(format!(
+        "school.db.portable-restore-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir(&archive_path)?;
+    let mut files = vec![database_path.to_path_buf()];
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar_name = database_path.as_os_str().to_os_string();
+        sidecar_name.push(suffix);
+        files.push(PathBuf::from(sidecar_name));
+    }
+    if include_key {
+        files.push(app_dir.join("school.db.key"));
+    }
+    files.extend(backup::list_backups(app_dir)?);
+
+    let mut moved_files = Vec::new();
+    for source in files {
+        if !source.exists() {
+            continue;
+        }
+        let file_name = source
+            .file_name()
+            .ok_or_else(|| AppError::validation("The recovery path has no file name"))?;
+        let archived = archive_path.join(file_name);
+        if let Err(error) = fs::rename(&source, &archived) {
+            restore_archived_files(&moved_files).map_err(|restore_error| {
+                AppError::new(
+                    "DATABASE_RECOVERY_FAILED",
+                    format!(
+                        "Could not preserve the old database files: {}. Reinstating them also failed: {}",
+                        error, restore_error
+                    ),
+                )
+            })?;
+            let _ = fs::remove_dir(&archive_path);
+            return Err(AppError::from(error));
+        }
+        moved_files.push((source, archived));
+    }
+
+    Ok(archive_path)
+}
+
+fn restore_archived_files(moved_files: &[(PathBuf, PathBuf)]) -> AppResult<()> {
+    for (original, archived) in moved_files.iter().rev() {
+        fs::rename(archived, original)?;
+    }
+    Ok(())
 }
 
 fn open_valid_database(path: &Path, key: &[u8]) -> AppResult<Connection> {
@@ -481,6 +812,121 @@ mod tests {
     }
 
     #[test]
+    fn restore_failure_rolls_back_to_the_pre_restore_database() {
+        let dir = temp_dir("restore-rollback");
+        let db = Db::open(&dir).unwrap();
+        db.transaction(|conn| {
+            Ok(conn.execute(
+                "INSERT INTO classes (id, name, grade_level, stream, academic_year, capacity) \
+                 VALUES ('keep', 'Keep This Data', 1, '', 2026, 30)",
+                [],
+            )?)
+        })
+        .unwrap();
+
+        let invalid_migration_backup = db.backup(&dir).unwrap();
+        {
+            let source = backup::open_database(&invalid_migration_backup, Some(&db.key)).unwrap();
+            source
+                .pragma_update(None, "user_version", MIGRATIONS.len() as i32 - 1)
+                .unwrap();
+        }
+
+        let error = db
+            .restore_from_backup(&invalid_migration_backup, None)
+            .unwrap_err();
+        assert_eq!(error.code, "RESTORE_FAILED_ROLLED_BACK");
+
+        let record_exists: bool = db
+            .with_conn(|conn| {
+                Ok(conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM classes WHERE id = 'keep')",
+                    [],
+                    |row| row.get(0),
+                )?)
+            })
+            .unwrap();
+        assert!(record_exists);
+        db.health_report().unwrap();
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn invalid_backup_is_rejected_without_changing_live_data() {
+        let dir = temp_dir("restore-invalid-backup");
+        let db = Db::open(&dir).unwrap();
+        db.transaction(|conn| {
+            Ok(conn.execute(
+                "INSERT INTO classes (id, name, grade_level, stream, academic_year, capacity) \
+                 VALUES ('keep', 'Keep This Data', 1, '', 2026, 30)",
+                [],
+            )?)
+        })
+        .unwrap();
+        let invalid_backup = dir.join("school_backup_corrupted.db");
+        fs::write(&invalid_backup, b"not a database").unwrap();
+
+        assert!(db.restore_from_backup(&invalid_backup, None).is_err());
+        let record_exists: bool = db
+            .with_conn(|conn| {
+                Ok(conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM classes WHERE id = 'keep')",
+                    [],
+                    |row| row.get(0),
+                )?)
+            })
+            .unwrap();
+        assert!(record_exists);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn health_report_verifies_database_and_latest_backup() {
+        let dir = temp_dir("health-report");
+        let db = Db::open(&dir).unwrap();
+        let backup_path = db.backup(&dir).unwrap();
+
+        let report = db.health_report().unwrap();
+        assert_eq!(report.integrity_check, "ok");
+        assert!(report.foreign_keys_ok);
+        assert_eq!(report.backup_count, 1);
+        assert_eq!(
+            report.latest_backup_path.as_deref(),
+            Some(backup_path.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            report.latest_backup_status.as_deref(),
+            Some("Verified and readable")
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn health_report_flags_a_corrupted_latest_backup() {
+        let dir = temp_dir("health-invalid-backup");
+        let db = Db::open(&dir).unwrap();
+        db.backup(&dir).unwrap();
+        let corrupted_backup = dir.join("school_backup_99999999_corrupted.db");
+        fs::write(&corrupted_backup, b"not a database").unwrap();
+
+        let report = db.health_report().unwrap();
+        assert_eq!(report.backup_count, 2);
+        assert_eq!(
+            report.latest_backup_path.as_deref(),
+            Some(corrupted_backup.to_string_lossy().as_ref())
+        );
+        assert!(report
+            .latest_backup_status
+            .as_deref()
+            .is_some_and(|status| status.starts_with("Verification failed:")));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn transaction_rolls_back_on_error() {
         let dir = temp_dir("rollback");
         let db = Db::open(&dir).unwrap();
@@ -544,6 +990,116 @@ mod tests {
         let database_bytes = fs::read(dir.join("school.db")).unwrap();
         assert!(!database_bytes.starts_with(b"SQLite format 3"));
         assert!(dir.join("school.db.key").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_live_database_recovers_from_a_verified_local_backup() {
+        let dir = temp_dir("startup-recovery");
+        let db_path = dir.join("school.db");
+        let backup_path;
+        {
+            let db = Db::open(&dir).unwrap();
+            db.transaction(|conn| {
+                Ok(conn.execute(
+                    "INSERT INTO classes (id, name, grade_level, stream, academic_year, capacity) \
+                     VALUES ('recover-me', 'Recovered Class', 1, '', 2026, 30)",
+                    [],
+                )?)
+            })
+            .unwrap();
+            backup_path = db.backup(&dir).unwrap();
+        }
+        fs::write(&db_path, b"damaged database bytes").unwrap();
+
+        let recovered = Db::open(&dir).unwrap();
+        let record_exists: bool = recovered
+            .with_conn(|conn| {
+                Ok(conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM classes WHERE id = 'recover-me')",
+                    [],
+                    |row| row.get(0),
+                )?)
+            })
+            .unwrap();
+        assert!(record_exists);
+        assert!(recovered.startup_recovery_notice().is_some_and(
+            |notice| notice.contains(backup_path.file_name().unwrap().to_str().unwrap())
+        ));
+        assert!(fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| entry.file_type().unwrap().is_dir()
+                && entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("school.db.damaged-")));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_key_preserves_the_old_database_and_opens_portable_restore_mode() {
+        let dir = temp_dir("missing-db-key");
+        let db_path = dir.join("school.db");
+        {
+            let db = Db::open(&dir).unwrap();
+            db.transaction(|conn| {
+                Ok(conn.execute(
+                    "INSERT INTO classes (id, name, grade_level, stream, academic_year, capacity) \
+                     VALUES ('keep', 'Keep This Data', 1, '', 2026, 30)",
+                    [],
+                )?)
+            })
+            .unwrap();
+        }
+        let database_bytes = fs::read(&db_path).unwrap();
+        fs::remove_file(dir.join("school.db.key")).unwrap();
+
+        let recovered = Db::open(&dir).unwrap();
+        assert!(recovered
+            .startup_recovery_notice()
+            .is_some_and(|notice| notice.contains("new, empty recovery database")));
+        assert!(dir.join("school.db.key").exists());
+        let archived_database = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().unwrap().is_dir())
+            .map(|entry| entry.path().join("school.db"))
+            .find(|path| path.exists());
+        assert!(archived_database.is_some_and(|path| fs::read(path).unwrap() == database_bytes));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn damaged_database_without_local_backup_opens_portable_restore_mode() {
+        let dir = temp_dir("missing-local-backup");
+        let db_path = dir.join("school.db");
+        {
+            let db = Db::open(&dir).unwrap();
+            db.transaction(|conn| {
+                Ok(conn.execute(
+                    "INSERT INTO classes (id, name, grade_level, stream, academic_year, capacity) \
+                     VALUES ('keep', 'Keep This Data', 1, '', 2026, 30)",
+                    [],
+                )?)
+            })
+            .unwrap();
+        }
+        fs::write(&db_path, b"damaged database bytes").unwrap();
+
+        let recovered = Db::open(&dir).unwrap();
+        assert!(recovered
+            .startup_recovery_notice()
+            .is_some_and(|notice| notice.contains("restore an encrypted portable backup")));
+        let user_tables: i64 = recovered
+            .with_conn(|conn| {
+                Ok(conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?)
+            })
+            .unwrap();
+        assert_eq!(user_tables, 0);
+
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -4,7 +4,8 @@ mod domain;
 mod infrastructure;
 mod license;
 
-use domain::auth::User;
+use domain::auth::{Permission, User};
+use domain::ports::UserRepository;
 use infrastructure::db::Db;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -57,9 +58,12 @@ impl LoginGuard {
 pub struct AppState {
     pub db: Arc<Db>,
     pub db_path: PathBuf,
+    pub remembered_session_path: PathBuf,
     pub licensing: license::Licensing,
     /// The currently authenticated user for this app instance. Cleared on logout.
     pub session: Mutex<Option<User>>,
+    pub remembered_session_token: Mutex<Option<String>>,
+    pub session_restore_notice: Mutex<Option<String>>,
     pub login_guard: Mutex<LoginGuard>,
 }
 
@@ -80,6 +84,37 @@ impl AppState {
         self.require_auth()
     }
 
+    pub fn require_permission(
+        &self,
+        permission: Permission,
+    ) -> crate::domain::errors::AppResult<User> {
+        let session_user = self.require_auth()?;
+        let user = self.db.with_conn(|conn| {
+            crate::infrastructure::sqlite::user_repository::SqliteUserRepository::new(conn)
+                .find_by_id(&session_user.id)
+        })?;
+        let user = user.ok_or_else(crate::domain::errors::AppError::unauthorized)?;
+        if !user.is_active {
+            return Err(crate::domain::errors::AppError::forbidden(
+                "This account has been deactivated",
+            ));
+        }
+        if !user.role.allows(permission) {
+            return Err(crate::domain::errors::AppError::forbidden(
+                "Your account does not have permission to perform this action",
+            ));
+        }
+        Ok(user)
+    }
+
+    pub fn require_write_permission(
+        &self,
+        permission: Permission,
+    ) -> crate::domain::errors::AppResult<User> {
+        self.licensing.ensure_writable()?;
+        self.require_permission(permission)
+    }
+
     /// Returns the authenticated user if logged in, without failing.
     pub fn current_user(&self) -> crate::domain::errors::AppResult<Option<User>> {
         Ok(self
@@ -89,6 +124,15 @@ impl AppState {
                 crate::domain::errors::AppError::new("LOCKED", "Application state lock poisoned")
             })?
             .clone())
+    }
+
+    pub fn take_session_restore_notice(&self) -> crate::domain::errors::AppResult<Option<String>> {
+        self.session_restore_notice
+            .lock()
+            .map_err(|_| {
+                crate::domain::errors::AppError::new("LOCKED", "Application state lock poisoned")
+            })
+            .map(|mut notice| notice.take())
     }
 }
 
@@ -104,12 +148,25 @@ fn main() {
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
             let licensing = license::Licensing::open(&app_dir)
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+            let remembered_session_path = app_dir.join("remembered-session.bin");
+            let (restored_user, remembered_session_token, mut session_restore_notice) =
+                restore_remembered_session(&db, &remembered_session_path)
+                    .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+            if let Some(database_notice) = db.startup_recovery_notice() {
+                session_restore_notice = Some(match session_restore_notice {
+                    Some(session_notice) => format!("{database_notice} {session_notice}"),
+                    None => database_notice,
+                });
+            }
 
             app.manage(AppState {
                 db: Arc::new(db),
                 db_path: app_dir.join("school.db"),
+                remembered_session_path,
                 licensing,
-                session: Mutex::new(None),
+                session: Mutex::new(restored_user),
+                remembered_session_token: Mutex::new(remembered_session_token),
+                session_restore_notice: Mutex::new(session_restore_notice),
                 login_guard: Mutex::new(LoginGuard::default()),
             });
 
@@ -123,6 +180,9 @@ fn main() {
             commands::auth::create_user,
             commands::auth::list_users,
             commands::auth::change_password,
+            commands::auth::create_administrator_recovery_code,
+            commands::auth::administrator_recovery_configured,
+            commands::auth::recover_administrator,
             commands::auth::set_user_active,
             commands::auth::update_user,
             commands::auth::delete_user,
@@ -134,6 +194,7 @@ fn main() {
             commands::students::list_students,
             commands::students::list_students_by_status,
             commands::students::register_student,
+            commands::students::import_students,
             commands::students::get_student,
             commands::students::update_student,
             commands::students::update_student_status,
@@ -182,6 +243,7 @@ fn main() {
             commands::statements::get_student_statement,
             commands::statements::get_invoice_detail,
             commands::setup::get_app_info,
+            commands::setup::get_database_health,
             commands::setup::backup_database,
             commands::setup::list_backups,
             commands::setup::restore_database,
@@ -193,4 +255,41 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running the School System application");
+}
+
+fn restore_remembered_session(
+    db: &Db,
+    path: &std::path::Path,
+) -> crate::domain::errors::AppResult<(Option<User>, Option<String>, Option<String>)> {
+    let token = match infrastructure::remembered_session::load(path) {
+        Ok(token) => token,
+        Err(error)
+            if matches!(
+                error.code.as_str(),
+                "KEY_UNPROTECTION_FAILED" | "SESSION_RESTORE_FAILED"
+            ) =>
+        {
+            infrastructure::remembered_session::clear(path)?;
+            return Ok((
+                None,
+                None,
+                Some("The saved sign-in could not be restored. Please sign in again.".into()),
+            ));
+        }
+        Err(error) => return Err(error),
+    };
+    let Some(token) = token else {
+        return Ok((None, None, None));
+    };
+    match application::auth_service::AuthService::restore_remembered_session(db, &token)? {
+        Some(user) => Ok((Some(user), Some(token), None)),
+        None => {
+            infrastructure::remembered_session::clear(path)?;
+            Ok((
+                None,
+                None,
+                Some("The saved sign-in is no longer valid. Please sign in again.".into()),
+            ))
+        }
+    }
 }

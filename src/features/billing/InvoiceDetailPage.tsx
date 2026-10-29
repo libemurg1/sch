@@ -16,6 +16,7 @@ import {
   type Column,
 } from "../../components"
 import { Page } from "../../app/AppShell"
+import { useSession } from "../../app/session"
 import { formatDate, studentName } from "../../lib/dates"
 import { formatMoney } from "../../lib/money"
 import { InvoiceDocument } from "../../reports/InvoiceDocument"
@@ -23,6 +24,7 @@ import { printDocument } from "../../reports/print"
 import type { InvoiceItem } from "../../types/schema/InvoiceItem"
 
 export function InvoiceDetailPage() {
+  const { user } = useSession()
   const { invoiceId } = useParams()
   const detail = useInvoiceDetail(invoiceId)
   const students = useStudents()
@@ -115,7 +117,9 @@ export function InvoiceDetailPage() {
                 Back
               </Link>
               <Button onClick={() => printDocument("a4")}>Print invoice</Button>
-              {invoice.status !== "CANCELLED" && invoice.paidCents === 0 ? (
+              {user?.role === "SCHOOL_ADMINISTRATOR" &&
+              invoice.status !== "CANCELLED" &&
+              invoice.paidCents === 0 ? (
                 <Button
                   variant="danger"
                   onClick={() => {

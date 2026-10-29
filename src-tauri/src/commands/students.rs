@@ -1,4 +1,5 @@
 use crate::application::student_service::StudentService;
+use crate::domain::auth::Permission;
 use crate::domain::dto::{RegisterStudentInput, UpdateStudentInput, UpdateStudentStatusInput};
 use crate::domain::entities::Student;
 use crate::domain::errors::AppResult;
@@ -25,8 +26,17 @@ pub fn register_student(
     state: State<'_, AppState>,
     input: RegisterStudentInput,
 ) -> AppResult<Student> {
-    let _user = state.require_write_auth()?;
+    let _user = state.require_write_permission(Permission::ManageStudents)?;
     StudentService::register(&state.db, input)
+}
+
+#[tauri::command]
+pub fn import_students(
+    state: State<'_, AppState>,
+    inputs: Vec<RegisterStudentInput>,
+) -> AppResult<Vec<Student>> {
+    let _user = state.require_write_permission(Permission::ManageStudents)?;
+    StudentService::register_many(&state.db, inputs)
 }
 
 #[tauri::command]
@@ -37,7 +47,7 @@ pub fn get_student(state: State<'_, AppState>, id: String) -> AppResult<Option<S
 
 #[tauri::command]
 pub fn update_student(state: State<'_, AppState>, input: UpdateStudentInput) -> AppResult<Student> {
-    let _user = state.require_write_auth()?;
+    let _user = state.require_write_permission(Permission::ManageStudents)?;
     StudentService::update_details(&state.db, input)
 }
 
@@ -46,6 +56,6 @@ pub fn update_student_status(
     state: State<'_, AppState>,
     input: UpdateStudentStatusInput,
 ) -> AppResult<()> {
-    let _user = state.require_write_auth()?;
+    let _user = state.require_write_permission(Permission::ManageStudents)?;
     StudentService::update_status(&state.db, &input.student_id, &input.status)
 }

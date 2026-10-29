@@ -1,9 +1,14 @@
 import { call } from "./client"
 import type { AppInfo } from "../types/schema/AppInfo"
+import type { DatabaseHealth } from "../types/schema/DatabaseHealth"
 
 /** Counts and the server's idea of today. */
 export function getAppInfo(): Promise<AppInfo> {
   return call<AppInfo>("get_app_info")
+}
+
+export function getDatabaseHealth(): Promise<DatabaseHealth> {
+  return call<DatabaseHealth>("get_database_health")
 }
 
 /** Takes an online snapshot of the database and returns its path. */

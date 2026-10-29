@@ -79,6 +79,10 @@ export function SettingsPage() {
       setSaved(true)
       window.setTimeout(() => setSaved(false), 2500)
     },
+    meta: {
+      successMessage: "School settings saved successfully.",
+      showSuccessNotice: false,
+    },
   })
 
   const logo = useMutation({
@@ -87,6 +91,7 @@ export function SettingsPage() {
       client.setQueryData(["school-settings"], updated)
       setLogoError(null)
     },
+    meta: { successMessage: "School logo updated successfully." },
   })
 
   if (!form || !settings) {

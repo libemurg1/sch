@@ -18,42 +18,27 @@ impl StudentService {
     /// The number allocation and the insert happen in one transaction so a
     /// rolled back registration never burns a number.
     pub fn register(db: &Db, input: RegisterStudentInput) -> AppResult<Student> {
-        if input.first_name.trim().is_empty() {
-            return Err(AppError::validation("First name is required"));
+        validate_registration(&input)?;
+        db.execute(|conn| register_with_conn(conn, input))
+    }
+
+    /// Registers a CSV batch atomically so validation or storage failures do
+    /// not leave the school with a partially imported roster.
+    pub fn register_many(db: &Db, inputs: Vec<RegisterStudentInput>) -> AppResult<Vec<Student>> {
+        if inputs.is_empty() {
+            return Err(AppError::validation(
+                "Choose a CSV file containing at least one student",
+            ));
         }
-        if input.last_name.trim().is_empty() {
-            return Err(AppError::validation("Last name is required"));
-        }
-        if input.dob.trim().is_empty() {
-            return Err(AppError::validation("Date of birth is required"));
-        }
-        if input.admission_date.trim().is_empty() {
-            return Err(AppError::validation("Admission date is required"));
+        for input in &inputs {
+            validate_registration(input)?;
         }
 
         db.execute(|conn| {
-            let students = SqliteStudentRepository::new(conn);
-            let numbers = NumberGenerator::new(conn);
-
-            let student_number = numbers.next_formatted("STU", current_year(), 4)?;
-
-            let student = Student {
-                id: Uuid::new_v4().to_string(),
-                student_number,
-                first_name: input.first_name.trim().to_string(),
-                last_name: input.last_name.trim().to_string(),
-                dob: input.dob.trim().to_string(),
-                gender: input.gender,
-                admission_date: input.admission_date.trim().to_string(),
-                guardian_name: input.guardian_name,
-                guardian_phone: input.guardian_phone,
-                guardian_email: input.guardian_email,
-                status: "ACTIVE".to_string(),
-                created_at: now_iso(),
-            };
-
-            students.create(&student)?;
-            Ok(student)
+            inputs
+                .into_iter()
+                .map(|input| register_with_conn(conn, input))
+                .collect()
         })
     }
 
@@ -122,6 +107,47 @@ impl StudentService {
     }
 }
 
+fn validate_registration(input: &RegisterStudentInput) -> AppResult<()> {
+    if input.first_name.trim().is_empty() {
+        return Err(AppError::validation("First name is required"));
+    }
+    if input.last_name.trim().is_empty() {
+        return Err(AppError::validation("Last name is required"));
+    }
+    if input.dob.trim().is_empty() {
+        return Err(AppError::validation("Date of birth is required"));
+    }
+    if input.admission_date.trim().is_empty() {
+        return Err(AppError::validation("Admission date is required"));
+    }
+    Ok(())
+}
+
+fn register_with_conn(
+    conn: &rusqlite::Connection,
+    input: RegisterStudentInput,
+) -> AppResult<Student> {
+    let students = SqliteStudentRepository::new(conn);
+    let numbers = NumberGenerator::new(conn);
+    let student_number = numbers.next_formatted("STU", current_year(), 4)?;
+    let student = Student {
+        id: Uuid::new_v4().to_string(),
+        student_number,
+        first_name: input.first_name.trim().to_string(),
+        last_name: input.last_name.trim().to_string(),
+        dob: input.dob.trim().to_string(),
+        gender: normalize_optional(input.gender.as_deref()),
+        admission_date: input.admission_date.trim().to_string(),
+        guardian_name: normalize_optional(input.guardian_name.as_deref()),
+        guardian_phone: normalize_optional(input.guardian_phone.as_deref()),
+        guardian_email: normalize_optional(input.guardian_email.as_deref()),
+        status: "ACTIVE".to_string(),
+        created_at: now_iso(),
+    };
+    students.create(&student)?;
+    Ok(student)
+}
+
 fn normalize_optional(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -157,6 +183,42 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    #[test]
+    fn bulk_registration_creates_all_students_and_rejects_invalid_batches() {
+        let (db, dir) = temp_db("bulk-registration");
+        let first = RegisterStudentInput {
+            first_name: "Ada".into(),
+            last_name: "Lovelace".into(),
+            dob: "2015-01-01".into(),
+            gender: None,
+            admission_date: "2026-01-01".into(),
+            guardian_name: None,
+            guardian_phone: None,
+            guardian_email: None,
+        };
+        let second = RegisterStudentInput {
+            first_name: "Grace".into(),
+            last_name: "Hopper".into(),
+            ..first.clone()
+        };
+
+        let imported = StudentService::register_many(&db, vec![first.clone(), second]).unwrap();
+        assert_eq!(imported.len(), 2);
+        assert_ne!(imported[0].student_number, imported[1].student_number);
+
+        let mut invalid = first.clone();
+        invalid.first_name = " ".into();
+        assert_eq!(
+            StudentService::register_many(&db, vec![first.clone(), invalid])
+                .unwrap_err()
+                .code,
+            "VALIDATION"
+        );
+        assert_eq!(StudentService::list(&db).unwrap().len(), 2);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     fn update_input(student_id: &str) -> UpdateStudentInput {

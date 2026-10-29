@@ -1,14 +1,19 @@
 import { useState } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   backupDatabase,
   exportBackup,
+  getDatabaseHealth,
   listBackups,
   restoreDatabase,
 } from "../../api/setup"
 import { useAppInfo } from "../../api/queries"
 import { useLicenseStatus } from "../../api/queries"
 import { activateLicense } from "../../api/license"
+import {
+  administratorRecoveryConfigured,
+  createAdministratorRecoveryCode,
+} from "../../api/auth"
 import {
   Button,
   Card,
@@ -20,7 +25,8 @@ import {
   PageHeader,
 } from "../../components"
 import { Page } from "../../app/AppShell"
-import { formatDateTime } from "../../lib/dates"
+import { formatDate, formatDateTime } from "../../lib/dates"
+import type { DatabaseHealth } from "../../types/schema/DatabaseHealth"
 
 export function MaintenancePage() {
   const client = useQueryClient()
@@ -39,11 +45,17 @@ export function MaintenancePage() {
   const [backupPassphrase, setBackupPassphrase] = useState("")
   const [confirmBackupPassphrase, setConfirmBackupPassphrase] = useState("")
   const [restorePassphrase, setRestorePassphrase] = useState("")
+  const [databaseHealth, setDatabaseHealth] = useState<DatabaseHealth | null>(null)
+  const [checkingHealth, setCheckingHealth] = useState(false)
   const activation = useMutation({
     mutationFn: activateLicense,
     onSuccess: async () => {
       setLicenseKey("")
       await client.invalidateQueries({ queryKey: ["license-status"] })
+    },
+    meta: {
+      successMessage: "License activated successfully.",
+      showSuccessNotice: false,
     },
   })
   const portableRestore = restoring?.toLowerCase().endsWith(".sfsbackup") ?? false
@@ -60,6 +72,18 @@ export function MaintenancePage() {
       setError(failure)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const checkDatabaseHealth = async () => {
+    setCheckingHealth(true)
+    setError(null)
+    try {
+      setDatabaseHealth(await getDatabaseHealth())
+    } catch (failure) {
+      setError(failure)
+    } finally {
+      setCheckingHealth(false)
     }
   }
 
@@ -90,7 +114,9 @@ export function MaintenancePage() {
       // query is now wrong.
       await client.invalidateQueries()
       await client.refetchQueries()
-      setMessage("The database has been restored. Everything has been reloaded.")
+      setMessage(
+        "The database has been restored. Sign in with an account from that backup.",
+      )
     } catch (failure) {
       setError(failure)
     } finally {
@@ -151,6 +177,9 @@ export function MaintenancePage() {
           <div className="space-y-4">
             <p className="text-sm text-slate-700">
               {license.data.message}
+              {license.data.state === "trial"
+                ? ` The trial started on ${formatDate(license.data.trialStartedOn)} (first app launch) and ends on ${formatDate(license.data.trialEndsOn)}. ${license.data.trialDaysRemaining} day${license.data.trialDaysRemaining === 1 ? "" : "s"} remaining.`
+                : ""}
               {license.data.licenseSchool ? ` Licensed to ${license.data.licenseSchool}.` : ""}
               {license.data.expiresOn ? ` Expiry date: ${license.data.expiresOn}.` : ""}
             </p>
@@ -197,8 +226,70 @@ export function MaintenancePage() {
         ) : null}
       </Card>
 
-      <Card title="Database">
-        <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+      <Card
+        title="Database health"
+        description="Run a live integrity check and verify that the newest local backup can be opened."
+        actions={
+          <Button
+            variant="secondary"
+            onClick={checkDatabaseHealth}
+            loading={checkingHealth}
+          >
+            Check now
+          </Button>
+        }
+      >
+        {databaseHealth ? (
+          <dl className="grid gap-4 text-sm sm:grid-cols-2">
+            <Item
+              label="Database integrity"
+              value={
+                databaseHealth.integrityCheck === "ok"
+                  ? "Passed"
+                  : databaseHealth.integrityCheck
+              }
+            />
+            <Item
+              label="Record relationships"
+              value={databaseHealth.foreignKeysOk ? "Passed" : "Errors found"}
+            />
+            <Item
+              label="Schema version"
+              value={`${databaseHealth.schemaVersion} / ${databaseHealth.expectedSchemaVersion}`}
+            />
+            <Item label="Local backups" value={String(databaseHealth.backupCount)} />
+            <Item
+              label="Newest backup"
+              value={databaseHealth.latestBackupStatus ?? "No local backup found"}
+            />
+            <Item label="Checked at" value={databaseHealth.checkedAt} />
+            {databaseHealth.latestBackupPath ? (
+              <div className="sm:col-span-2">
+                <Item label="Newest backup file" value={databaseHealth.latestBackupPath} />
+              </div>
+            ) : null}
+          </dl>
+        ) : (
+          <p className="text-sm text-slate-600">
+            No health check has been run this session.
+          </p>
+        )}
+        <p className="mt-4 text-xs text-amber-800">
+          Local backups do not protect against a lost or damaged computer. Export
+          an encrypted backup to a separate USB drive or other off-device
+          location regularly, and periodically test restoring it.
+        </p>
+      </Card>
+
+      <Card
+        title="Administrator account recovery"
+        description="Create an offline one-time recovery code for the sole active School Administrator."
+      >
+        <AdministratorRecoveryCode />
+      </Card>
+
+      <Card title="Database totals">
+        <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
           <Item label="Students" value={String(appInfo.data?.studentCount ?? "-")} />
           <Item label="Invoices" value={String(appInfo.data?.invoiceCount ?? "-")} />
           <Item label="Today" value={appInfo.data?.today ?? "-"} />
@@ -389,6 +480,73 @@ export function MaintenancePage() {
         </div>
       </Card>
     </Page>
+  )
+}
+
+function AdministratorRecoveryCode() {
+  const client = useQueryClient()
+  const configured = useQuery({
+    queryKey: ["administrator-recovery-configured"],
+    queryFn: administratorRecoveryConfigured,
+    retry: false,
+  })
+  const [code, setCode] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const [busy, setBusy] = useState(false)
+
+  const generate = async () => {
+    setBusy(true)
+    setError(null)
+    setCode(null)
+    try {
+      setCode(await createAdministratorRecoveryCode())
+      await client.invalidateQueries({
+        queryKey: ["administrator-recovery-configured"],
+      })
+    } catch (failure) {
+      setError(failure)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">
+        Store the code somewhere private and separate from this computer. The
+        app stores only a hash, so the code cannot be shown again. Generating a
+        new code immediately invalidates the previous one.
+      </p>
+      {configured.error ? <ErrorBanner error={configured.error} /> : null}
+      {configured.data === true ? (
+        <p className="text-sm font-medium text-emerald-700">
+          A recovery code is configured. The app cannot display it again.
+        </p>
+      ) : configured.data === false ? (
+        <p className="text-sm font-medium text-amber-700">
+          No recovery code has been saved for this administrator yet.
+        </p>
+      ) : null}
+      {error ? <ErrorBanner error={error} /> : null}
+      {code ? (
+        <Field
+          label="One-time recovery code — save it now"
+          htmlFor="administrator-recovery-code"
+          hint="This code is displayed only once. Anyone with it can reset the administrator password."
+        >
+          <Input
+            id="administrator-recovery-code"
+            value={code}
+            readOnly
+            onFocus={(event) => event.currentTarget.select()}
+            className="font-mono tracking-wider"
+          />
+        </Field>
+      ) : null}
+      <Button variant="secondary" onClick={generate} loading={busy}>
+        {code ? "Generate a new code" : "Generate recovery code"}
+      </Button>
+    </div>
   )
 }
 

@@ -25,7 +25,7 @@ export function AuthLayout({
             />
           ) : (
             <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
-              SFS
+              <span className="whitespace-nowrap">SFS</span>
             </div>
           )}
           <h1 className="text-xl font-semibold tracking-tight text-slate-900">

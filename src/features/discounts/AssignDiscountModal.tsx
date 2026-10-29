@@ -9,6 +9,7 @@ import {
 } from "../../api/queries"
 import {
   Button,
+  ConfirmDialog,
   ErrorBanner,
   Field,
   Modal,
@@ -42,6 +43,7 @@ export function AssignDiscountModal({
   const [termId, setTermId] = useState("")
   const [targetFeeItemId, setTargetFeeItemId] = useState("")
   const [reason, setReason] = useState("")
+  const [confirmGrant, setConfirmGrant] = useState(false)
 
   const effectiveStudentId = presetStudentId ?? studentId
   const enrollments = useStudentEnrollments(effectiveStudentId || undefined)
@@ -68,61 +70,60 @@ export function AssignDiscountModal({
       setTermId("")
       setTargetFeeItemId("")
       setReason("")
+      setConfirmGrant(false)
       mutation.reset()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, presetStudentId])
 
   const submit = () => {
-    const input: AssignDiscountInput = {
-      studentId: effectiveStudentId,
-      discountId,
-      termId: termId || null,
-      targetFeeItemId: targetFeeItemId || null,
-      targetStudentFeeId: null,
-      reason: reason.trim() === "" ? null : reason.trim(),
-    }
-    mutation.mutate(input, { onSuccess: onClose })
+    setConfirmGrant(true)
   }
 
   const selectedDiscount = (discounts.data ?? []).find(
     (discount) => discount.id === discountId,
   )
+  const selectedStudent = (students.data ?? []).find(
+    (student) => student.id === effectiveStudentId,
+  )
+  const selectedTerm = (terms.data ?? []).find((term) => term.id === termId)
+  const selectedTarget = feeItems.find((item) => item.id === targetFeeItemId)
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Grant a discount"
-      description="A discount without a target applies to the whole invoice."
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            onClick={submit}
-            loading={mutation.isPending}
-            disabled={!effectiveStudentId || !discountId}
-          >
-            Grant discount
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        {mutation.isError ? <ErrorBanner error={mutation.error} /> : null}
+    <>
+      <Modal
+        open={open}
+        onClose={onClose}
+        title="Grant a discount"
+        description="A discount without a target applies to the whole invoice."
+        footer={
+          <>
+            <Button variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              onClick={submit}
+              loading={mutation.isPending}
+              disabled={!effectiveStudentId || !discountId}
+            >
+              Grant discount
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {mutation.isError ? <ErrorBanner error={mutation.error} /> : null}
 
-        {!presetStudentId ? (
-          <Field label="Student" htmlFor="discount-student" required>
-            <StudentPicker
-              id="discount-student"
-              value={studentId}
-              onChange={setStudentId}
-              students={students.data ?? []}
-            />
-          </Field>
-        ) : null}
+          {!presetStudentId ? (
+            <Field label="Student" htmlFor="discount-student" required>
+              <StudentPicker
+                id="discount-student"
+                value={studentId}
+                onChange={setStudentId}
+                students={students.data ?? []}
+              />
+            </Field>
+          ) : null}
 
         <Field label="Discount" htmlFor="discount-choice" required>
           <Select
@@ -202,14 +203,57 @@ export function AssignDiscountModal({
           </Select>
         </Field>
 
-        {selectedDiscount ? (
-          <p className="text-xs text-slate-500">
-            {selectedDiscount.kind === "PERCENT"
-              ? `This takes ${formatBasisPoints(selectedDiscount.value)} off the discountable charges.`
-              : `This takes ${formatMoney(selectedDiscount.value)} off the whole invoice.`}
-          </p>
-        ) : null}
-      </div>
-    </Modal>
+          {selectedDiscount ? (
+            <p className="text-xs text-slate-500">
+              {selectedDiscount.kind === "PERCENT"
+                ? `This takes ${formatBasisPoints(selectedDiscount.value)} off the discountable charges.`
+                : `This takes ${formatMoney(selectedDiscount.value)} off the whole invoice.`}
+            </p>
+          ) : null}
+        </div>
+      </Modal>
+      <ConfirmDialog
+        open={open && confirmGrant}
+        title="Confirm discount"
+        confirmLabel="Grant discount"
+        loading={mutation.isPending}
+        error={mutation.error}
+        onCancel={() => {
+          mutation.reset()
+          setConfirmGrant(false)
+        }}
+        onConfirm={() => {
+          const input: AssignDiscountInput = {
+            studentId: effectiveStudentId,
+            discountId,
+            termId: termId || null,
+            targetFeeItemId: targetFeeItemId || null,
+            targetStudentFeeId: null,
+            reason: reason.trim() === "" ? null : reason.trim(),
+          }
+          mutation.mutate(input, { onSuccess: onClose })
+        }}
+      >
+        <p>
+          Grant <strong>{selectedDiscount?.name}</strong> to{" "}
+          <strong>
+            {selectedStudent
+              ? `${selectedStudent.firstName} ${selectedStudent.lastName}`
+              : "the selected student"}
+          </strong>
+          {selectedTerm
+            ? ` for ${formatTermLabel(selectedTerm)}`
+            : " for every term"}
+          .
+          {selectedTarget
+            ? ` It applies only to ${selectedTarget.description}.`
+            : " It applies to the whole invoice."}
+        </p>
+        <p className="mt-2">
+          Review the discount because this changes the amount the school expects
+          to collect.
+        </p>
+      </ConfirmDialog>
+    </>
   )
 }

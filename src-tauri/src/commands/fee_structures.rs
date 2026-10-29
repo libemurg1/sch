@@ -1,4 +1,5 @@
 use crate::application::fee_structure_service::FeeStructureService;
+use crate::domain::auth::Permission;
 use crate::domain::dto::SaveFeeStructureInput;
 use crate::domain::entities::{FeeItem, FeeStructure};
 use crate::domain::errors::AppResult;
@@ -20,6 +21,6 @@ pub fn save_fee_structure(
     state: State<'_, AppState>,
     input: SaveFeeStructureInput,
 ) -> AppResult<FeeStructure> {
-    let _user = state.require_write_auth()?;
+    let _user = state.require_write_permission(Permission::ManageFeeStructures)?;
     FeeStructureService::save(&state.db, input)
 }

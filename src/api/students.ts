@@ -19,6 +19,12 @@ export function registerStudent(input: RegisterStudentInput): Promise<Student> {
   return call<Student>("register_student", { input })
 }
 
+export function importStudents(
+  inputs: RegisterStudentInput[],
+): Promise<Student[]> {
+  return call<Student[]>("import_students", { inputs })
+}
+
 export function getStudent(id: string): Promise<Student | null> {
   return call<Student | null>("get_student", { id })
 }

@@ -206,16 +206,41 @@ pub fn backup_database(
     std::fs::create_dir_all(app_dir)?;
 
     let backup_path = app_dir.join(format!(
-        "school_backup_{}.db",
-        chrono::Utc::now().format("%Y%m%d_%H%M%S_%3f")
+        "school_backup_{}_{}.db",
+        chrono::Utc::now().format("%Y%m%d_%H%M%S_%3f"),
+        uuid::Uuid::new_v4()
     ));
 
-    let mut destination = Connection::open(&backup_path)?;
-    if let Some(key) = key {
-        set_database_key(&destination, key)?;
+    let result = (|| -> AppResult<()> {
+        let schema_version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let mut destination = Connection::open(&backup_path)?;
+        if let Some(key) = key {
+            set_database_key(&destination, key)?;
+        }
+        let backup = Backup::new(conn, &mut destination)?;
+        backup.run_to_completion(128, Duration::from_millis(10), None)?;
+        drop(backup);
+        drop(destination);
+
+        let verified = open_database(&backup_path, key)?;
+        let copied_schema_version: i32 =
+            verified.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        let integrity: String = verified.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
+        if schema_version != copied_schema_version || integrity != "ok" {
+            return Err(AppError::new(
+                "BACKUP_FAILED",
+                "The database snapshot did not pass verification",
+            ));
+        }
+        let file = std::fs::OpenOptions::new().write(true).open(&backup_path)?;
+        file.sync_all()?;
+        Ok(())
+    })();
+
+    if let Err(error) = result {
+        let _ = std::fs::remove_file(&backup_path);
+        return Err(error);
     }
-    let backup = Backup::new(conn, &mut destination)?;
-    backup.run_to_completion(128, Duration::from_millis(10), None)?;
 
     Ok(backup_path)
 }

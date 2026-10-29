@@ -1,5 +1,6 @@
 use crate::application::credit_service::CreditService;
 use crate::application::payment_service::PaymentService;
+use crate::domain::auth::Permission;
 use crate::domain::dto::{RecordPaymentInput, StudentAccount};
 use crate::domain::entities::{Payment, PaymentAllocation};
 use crate::domain::errors::AppResult;
@@ -11,7 +12,7 @@ pub fn record_payment(
     state: State<'_, AppState>,
     mut input: RecordPaymentInput,
 ) -> AppResult<Payment> {
-    let user = state.require_write_auth()?;
+    let user = state.require_write_permission(Permission::RecordPayments)?;
     // The audit trail is authoritative: it always reflects the signed-in user.
     input.created_by = Some(user.id);
     PaymentService::record(&state.db, input)
@@ -64,6 +65,6 @@ pub fn reverse_payment(
     payment_id: String,
     reason: String,
 ) -> AppResult<Payment> {
-    let user = state.require_write_auth()?;
+    let user = state.require_write_permission(Permission::ReversePayments)?;
     PaymentService::reverse(&state.db, &payment_id, &user.id, &reason)
 }

@@ -75,7 +75,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const bootstrap = useMutation({
     mutationFn: async (input: BootstrapInput) => {
       const user = await createUser(input)
-      await loginRequest({ username: input.username, password: input.password })
+      await loginRequest({
+        username: input.username,
+        password: input.password,
+        rememberMe: false,
+      })
 
       // Now authenticated, so the school name can be stored for the letterhead.
       const schoolName = input.schoolName?.trim()
