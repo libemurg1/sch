@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react"
 import { NavLink, Outlet } from "react-router-dom"
 import { useActiveTerm, useAppInfo, useLicenseStatus } from "../api/queries"
-import { DeveloperNote } from "../components"
+import { DeveloperNote, ErrorBanner } from "../components"
 import { useSchoolSettings, useSession } from "./session"
 import { cx } from "../lib/cx"
 import { formatDate, formatTermLabel } from "../lib/dates"
@@ -58,7 +58,11 @@ export function AppShell() {
   const license = useLicenseStatus()
   const activeTerm = useActiveTerm()
   const { settings } = useSchoolSettings()
-  const { user, logout } = useSession()
+  const { user, logout, status } = useSession()
+  const visibleNav = NAV.filter(
+    (section) =>
+      section.group !== "System" || user?.role === "SCHOOL_ADMINISTRATOR",
+  )
 
   const schoolName = settings?.schoolName ?? "School Fees"
   const logo = settings?.logoData
@@ -72,8 +76,8 @@ export function AppShell() {
           className="h-7 w-7 shrink-0 rounded object-contain"
         />
       ) : (
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-indigo-600 text-[9px] font-black tracking-[0.18em] text-white">
-          SM
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-indigo-600 text-[8px] font-black text-white">
+          <span className="whitespace-nowrap">SFS</span>
         </div>
       )}
       <span className="truncate text-sm font-semibold text-slate-900">
@@ -84,7 +88,7 @@ export function AppShell() {
 
   const navigation = (
     <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
-      {NAV.map((section) => (
+      {visibleNav.map((section) => (
         <div key={section.group}>
           <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             {section.group}
@@ -129,9 +133,6 @@ export function AppShell() {
               {user?.displayName ?? "-"}
             </span>
           </p>
-          <div className="mt-3 border-t border-slate-100 px-3 pt-3">
-            <DeveloperNote />
-          </div>
         </div>
       </aside>
 
@@ -203,6 +204,21 @@ export function AppShell() {
           </div>
         </header>
 
+        {logout.error ? (
+          <div className="px-4 pt-3 sm:px-6 lg:px-8" role="alert">
+            <ErrorBanner error={logout.error} />
+          </div>
+        ) : null}
+
+        {status?.sessionRestoreNotice ? (
+          <div
+            className="mx-4 mt-3 rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-inset ring-amber-200 sm:mx-6 lg:mx-8"
+            role="status"
+          >
+            {status.sessionRestoreNotice}
+          </div>
+        ) : null}
+
         {license.data && license.data.state !== "active" ? (
           <div
             className={cx(
@@ -216,17 +232,24 @@ export function AppShell() {
             role="status"
           >
             {license.data.state === "trial"
-              ? `Trial: ${license.data.trialDaysRemaining} day${license.data.trialDaysRemaining === 1 ? "" : "s"} remaining.`
+              ? `14-day trial: ${license.data.trialDaysRemaining} day${license.data.trialDaysRemaining === 1 ? "" : "s"} remaining. Started ${formatDate(license.data.trialStartedOn)}; ends ${formatDate(license.data.trialEndsOn)}.`
               : license.data.state === "grace"
                 ? `License grace period: ${license.data.graceDaysRemaining} day${license.data.graceDaysRemaining === 1 ? "" : "s"} remaining.`
                 : license.data.message}
-            {" "}Open System &gt; Maintenance for license activation details.
+            {user?.role === "SCHOOL_ADMINISTRATOR"
+              ? " Open System > Maintenance for license activation details."
+              : " Contact your School Administrator for license assistance."}
           </div>
         ) : null}
 
-        <main className="px-4 py-6 sm:px-6 lg:px-8">
+        <main className="px-4 py-6 pb-24 sm:px-6 lg:px-8">
           <Outlet />
         </main>
+      </div>
+      <div className="no-print fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-2 shadow-[0_-2px_8px_rgba(15,23,42,0.06)] backdrop-blur sm:px-6 lg:pl-60">
+        <div className="mx-auto max-w-7xl text-center">
+          <DeveloperNote />
+        </div>
       </div>
     </div>
   )

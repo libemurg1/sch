@@ -1,4 +1,5 @@
 use crate::application::enrollment_service::EnrollmentService;
+use crate::domain::auth::Permission;
 use crate::domain::dto::{
     CreateClassInput, CreateTermInput, EnrollStudentInput, MoveStudentInput, UpdateClassInput,
     UpdateTermInput,
@@ -22,25 +23,25 @@ pub fn list_grades(state: State<'_, AppState>) -> AppResult<Vec<Grade>> {
 
 #[tauri::command]
 pub fn create_class(state: State<'_, AppState>, input: CreateClassInput) -> AppResult<Class> {
-    let _user = state.require_write_auth()?;
+    let _user = state.require_write_permission(Permission::ManageEnrollment)?;
     EnrollmentService::create_class(&state.db, input)
 }
 
 #[tauri::command]
 pub fn update_class(state: State<'_, AppState>, input: UpdateClassInput) -> AppResult<Class> {
-    let _user = state.require_write_auth()?;
+    let _user = state.require_write_permission(Permission::ManageEnrollment)?;
     EnrollmentService::update_class(&state.db, input)
 }
 
 #[tauri::command]
 pub fn delete_class(state: State<'_, AppState>, class_id: String) -> AppResult<()> {
-    let _user = state.require_write_auth()?;
+    let _user = state.require_write_permission(Permission::ManageEnrollment)?;
     EnrollmentService::delete_class(&state.db, &class_id)
 }
 
 #[tauri::command]
 pub fn move_student(state: State<'_, AppState>, input: MoveStudentInput) -> AppResult<Enrollment> {
-    let _user = state.require_write_auth()?;
+    let _user = state.require_write_permission(Permission::ManageEnrollment)?;
     EnrollmentService::move_student(&state.db, input)
 }
 
@@ -58,19 +59,19 @@ pub fn get_active_term(state: State<'_, AppState>) -> AppResult<Option<Term>> {
 
 #[tauri::command]
 pub fn create_term(state: State<'_, AppState>, input: CreateTermInput) -> AppResult<Term> {
-    let _user = state.require_write_auth()?;
+    let _user = state.require_write_permission(Permission::ManageEnrollment)?;
     EnrollmentService::create_term(&state.db, input)
 }
 
 #[tauri::command]
 pub fn update_term(state: State<'_, AppState>, input: UpdateTermInput) -> AppResult<Term> {
-    let _user = state.require_write_auth()?;
+    let _user = state.require_write_permission(Permission::ManageEnrollment)?;
     EnrollmentService::update_term(&state.db, input)
 }
 
 #[tauri::command]
 pub fn delete_term(state: State<'_, AppState>, term_id: String) -> AppResult<()> {
-    let _user = state.require_write_auth()?;
+    let _user = state.require_write_permission(Permission::ManageEnrollment)?;
     EnrollmentService::delete_term(&state.db, &term_id)
 }
 
@@ -79,7 +80,7 @@ pub fn enroll_student(
     state: State<'_, AppState>,
     input: EnrollStudentInput,
 ) -> AppResult<Enrollment> {
-    let _user = state.require_write_auth()?;
+    let _user = state.require_write_permission(Permission::ManageEnrollment)?;
     EnrollmentService::enroll(&state.db, input)
 }
 

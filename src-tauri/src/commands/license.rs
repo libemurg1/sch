@@ -1,3 +1,4 @@
+use crate::domain::auth::Permission;
 use crate::domain::errors::AppResult;
 use crate::license::LicenseStatus;
 use crate::AppState;
@@ -13,6 +14,6 @@ pub fn activate_license(
     state: State<'_, AppState>,
     license_key: String,
 ) -> AppResult<LicenseStatus> {
-    let _user = state.require_auth()?;
+    let _user = state.require_permission(Permission::ManageSettings)?;
     state.licensing.activate(&license_key)
 }

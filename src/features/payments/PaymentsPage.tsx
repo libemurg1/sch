@@ -57,6 +57,7 @@ export function PaymentsPage() {
   const [preview, setPreview] = useState<Payment | null>(null)
   const [reversing, setReversing] = useState<Payment | null>(null)
   const [reversalReason, setReversalReason] = useState("")
+  const [confirmPayment, setConfirmPayment] = useState(false)
 
   const account = useStudentAccount(studentId || undefined)
 
@@ -82,6 +83,21 @@ export function PaymentsPage() {
   const appliedCents = Math.min(availableCents, outstandingCents)
   const creditAfterCents = availableCents - appliedCents
   const outstandingAfterCents = outstandingCents - appliedCents
+
+  const referenceTaken =
+    method !== "CASH" &&
+    reference.trim() !== "" &&
+    (payments.data ?? []).some(
+      (payment) =>
+        payment.paymentMethod === method &&
+        payment.referenceNumber === reference.trim() &&
+        payment.reversedAt === null,
+    )
+  const amountError =
+    amount.trim() !== "" &&
+    (parseMoneyToCents(amount) === null || amountCents <= 0)
+      ? "Enter a valid amount greater than zero, using no more than two decimal places."
+      : null
 
   const receiptAllocations = usePaymentAllocations(mutation.data?.id)
   const previewAllocations = usePaymentAllocations(preview?.id)
@@ -161,7 +177,7 @@ export function PaymentsPage() {
         <div className="flex justify-end gap-2">
           {payment.reversedAt ? (
             <Badge tone="danger">Reversed</Badge>
-          ) : (
+          ) : user?.role === "SCHOOL_ADMINISTRATOR" ? (
             <Button
               size="sm"
               variant="danger"
@@ -173,7 +189,7 @@ export function PaymentsPage() {
             >
               Reverse
             </Button>
-          )}
+          ) : null}
           <Button
             size="sm"
             variant="secondary"
@@ -210,12 +226,16 @@ export function PaymentsPage() {
       onSuccess: () => {
         setAmount("")
         setReference("")
+        setConfirmPayment(false)
       },
     })
   }
 
   const canSubmit =
-    studentId !== "" && amountCents > 0 && paymentDate !== ""
+    studentId !== "" &&
+    amountCents > 0 &&
+    paymentDate !== "" &&
+    !referenceTaken
 
   return (
     <Page>
@@ -297,10 +317,11 @@ export function PaymentsPage() {
               <Field
                 label="Reference"
                 htmlFor="pay-reference"
+                error={referenceTaken ? "This reference is already used for this payment method." : null}
                 hint={
                   method === "CASH"
-                    ? "Cash payments do not need a reference."
-                    : "Must be unique for this method."
+                    ? "Optional for cash payments."
+                    : "Optional; if entered, it must be unique for this method."
                 }
               >
                 <Input
@@ -394,13 +415,19 @@ export function PaymentsPage() {
             </div>
 
             <div className="grid gap-4 border-t border-slate-200 pt-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Field label="Amount received" htmlFor="pay-amount" required>
+              <Field
+                label="Amount received"
+                htmlFor="pay-amount"
+                required
+                error={amountError}
+              >
                 <Input
                   id="pay-amount"
                   inputMode="decimal"
                   placeholder="0.00"
                   value={amount}
                   onChange={(event) => setAmount(event.target.value)}
+                  error={amountError}
                 />
               </Field>
               <div className="sm:col-span-2 lg:col-span-3 lg:self-end">
@@ -450,7 +477,11 @@ export function PaymentsPage() {
                   {formatMoney(amountCents)}
                 </span>
               </p>
-              <Button onClick={submit} disabled={!canSubmit} loading={mutation.isPending}>
+              <Button
+                onClick={() => setConfirmPayment(true)}
+                disabled={!canSubmit}
+                loading={mutation.isPending}
+              >
                 Record payment
               </Button>
             </div>
@@ -481,6 +512,32 @@ export function PaymentsPage() {
           )}
         </Card>
       </div>
+
+      <ConfirmDialog
+        open={confirmPayment}
+        title="Confirm payment"
+        confirmLabel="Record payment"
+        loading={mutation.isPending}
+        error={mutation.error}
+        onCancel={() => {
+          mutation.reset()
+          setConfirmPayment(false)
+        }}
+        onConfirm={submit}
+      >
+        <p>
+          Record <strong>{formatMoney(amountCents)}</strong> received from{" "}
+          <strong>
+            {selectedStudent ? studentName(selectedStudent) : "the selected student"}
+          </strong>{" "}
+          on {formatDate(paymentDate)} by {method.replace(/_/g, " ")}?
+        </p>
+        <p className="mt-2">
+          {formatMoney(appliedCents)} will be allocated to outstanding invoices
+          and {formatMoney(creditAfterCents)} will remain as student credit.
+          Check these details against the money received before confirming.
+        </p>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={reversing !== null}

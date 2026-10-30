@@ -37,14 +37,32 @@ On first launch:
 4. Select **Create account and sign in**.
 
 On later launches, sign in with the username and password you created. Usernames
-are not case-sensitive. Keep your password private. There is no built-in
-password reset if you forget it; change it while signed in from **System >
-Users**.
+are not case-sensitive. Keep your password private. While signed in, change it
+from **System > Users**. In **System > Maintenance**, generate an administrator
+recovery code and store it somewhere private and separate from the computer.
+The app stores only a hash and displays the code once; generating another code
+invalidates the previous one. If the sole active School Administrator is locked
+out, select **Forgot administrator password?** on the sign-in screen and use the
+username and recovery code to set a new password. Recovery also generates a
+replacement code, which must be saved. Recovery is rate-limited and is available
+only when there is exactly one active School Administrator. It cannot help if
+the code was never saved or the app database and all backups are lost.
+
+On the login screen, **Remember me on this Windows account** keeps you signed in
+across app restarts until you sign out or change your password. The app stores a
+revocable session token protected for the current Windows account, not your
+password. Do not select it on a shared Windows account or a computer other
+people can access while you are signed in.
 
 ## Typical setup and daily workflow
 
 Use the left navigation to open each area. On a smaller screen, open the menu
 with the menu button in the header.
+
+Successful changes show a confirmation message. Important financial actions
+and sensitive exports ask you to review the details before proceeding; actions
+that cannot be undone, such as cancelling an invoice or reversing a payment,
+require a confirmation.
 
 ### 1. Configure the school and academic year
 
@@ -61,6 +79,19 @@ setting fees, or billing.
 ### 2. Add students and enroll them
 
 - In **Records > Students**, add each student and keep their details current.
+- Use **Find a student** to search the permanent student directory across all
+  years by name, student number, or guardian details. Open a student record to
+  see their full academic history, invoices, and payments.
+- School Administrators can use **Import students** to preview and validate a
+  CSV file before importing student details. Download the template for the
+  supported headers; student numbers are assigned automatically, and existing
+  numbers in an exported file are skipped. Imports do not create enrollments.
+- **Export filtered students** downloads the currently filtered directory as
+  CSV, including student numbers, dates of birth, and guardian contact details.
+  Confirm the export and store the file securely.
+- Use **Class roster by term** to view the students grouped into classes for a
+  selected school year and term. Check the year and term shown before using a
+  roster; students who were not enrolled in that term are listed separately.
 - In **Records > Enrollment**, enroll students into the appropriate class and
   term.
 - Use **Promotion** when moving students into the next class or term. Review
@@ -77,8 +108,13 @@ Review fee amounts and discount eligibility before generating invoices.
 
 ### 4. Bill students
 
-- Open **Money > Billing** to generate invoices for the selected term and
-  eligible students.
+- Before billing a class, record any student-specific charges under
+  **Money > Billing**. A pending charge for a student in the selected class
+  and term is included on that student's term invoice, not on other students'
+  invoices. Then generate invoices for the class and term.
+- If the student's class invoice has already been issued, record the charge
+  and raise a supplementary invoice for that student. Issued invoices are not
+  edited, so a printed copy remains consistent with the stored invoice.
 - Open **Money > Invoices** to find invoices and review their details and
   payment status.
 - Print an invoice from its detail view when needed.
@@ -90,9 +126,11 @@ than trying to change the historical transaction.
 ### 5. Record payments
 
 - Open **Money > Payments** and record the payer, amount, date, and payment
-  method.
-- Allocate the payment to the appropriate invoice or invoices, checking the
-  allocation amounts before saving.
+  method. A reference is optional; when supplied for a non-cash payment, it
+  must be unique for that payment method.
+- The app applies the payment to the student's oldest outstanding invoices
+  first. Any amount left after those balances are cleared remains as account
+  credit for later invoices.
 - Print or reprint a receipt from the payment record.
 
 If a payment was entered incorrectly, use the reversal action and provide a
@@ -114,23 +152,40 @@ same as deleting the financial history.
 ## Users and access
 
 The first account is the administrator account. The **System > Users** page
-allows signed-in users to add accounts, edit account names, deactivate or
-reactivate other accounts, delete accounts, and change their own password.
-Each account has full application access; the current version does not provide
-role-based restrictions. Only create accounts for people who are trusted to
-view and manage all student and financial records.
+is available to School Administrators, who can add accounts, assign roles,
+edit access, deactivate or reactivate accounts, and change their own password.
 
-Payments record which signed-in user received them. Deleting a user does not
-delete their recorded payments, but removes that user's name from the
-received-by attribution.
+| Capability | School Administrator | Bursar |
+|---|---|---|
+| View students, invoices, payments, statements, reports and audit history | Allowed | Allowed |
+| Register or edit student details | Allowed | Not allowed |
+| Manage classes, terms, enrollment and promotion | Allowed | Allowed |
+| Edit fee structures | Allowed | Allowed |
+| Create and assign discounts | Allowed | Allowed |
+| Raise class and supplementary invoices | Allowed | Allowed |
+| Record payments and print receipts | Allowed | Allowed |
+| Reverse payments | Allowed | Not allowed |
+| Cancel invoices | Allowed | Not allowed |
+| Manage users, school settings, licenses and backups | Allowed | Not allowed |
+
+Use the **Bursar** role for finance staff who need to maintain fees, discounts,
+enrollment, billing, and payment records. Use **School Administrator** only
+for trusted staff who need unrestricted access. The backend checks permissions;
+hiding a screen or button is not the security control.
+
+Payments record which signed-in user received them. Deactivate accounts when
+staff leave. The system prevents deactivating, deleting, or demoting the last
+active School Administrator.
 
 Select **Sign out** when you are finished, especially on a shared Windows
 computer.
 
 ## License and activation
 
-A new installation starts a 14-day trial at first launch. During setup, the
-app creates a device activation ID. To purchase or renew a license, send that
+A new installation starts a 14-day trial at first launch (the app records the
+first-launch date as the trial start date). The remaining days and trial start
+and end dates are shown in the app banner and under **System > Maintenance >
+License**. During setup, the app creates a device activation ID. To purchase or renew a license, send that
 ID to your software provider and provide the school name. The provider returns
 a signed license key; enter it under **System > Maintenance > License**.
 
@@ -160,13 +215,26 @@ passphrase; licensing does not replace data backups.
 Create backups regularly and before significant changes:
 
 1. Open **System > Maintenance** and select **Back up now** to create an
-   encrypted local backup.
+   encrypted local backup. Use **Database health > Check now** to confirm the
+   database integrity and verify that the newest local backup is readable.
 2. For protection against computer or Windows-account loss, export a backup
    to an external or removable drive. Enter an existing destination folder,
    choose a passphrase of at least 12 characters, confirm it, and select
    **Export** for the backup.
 3. Store the portable backup and its passphrase separately. The passphrase
    cannot be recovered if lost.
+
+Run the health check after backups and restores, and periodically test a
+portable backup on a separate computer or Windows account. A successful local
+backup protects against some database failures, but not against loss of the
+computer, drive, or Windows account. Keep a recent encrypted portable backup
+off-device.
+
+If the database cannot be opened and no usable local backup exists, the app
+preserves the old database files and starts an empty recovery database with a
+warning. Do not enter new records into it. Create a temporary administrator,
+then restore an off-device `.sfsbackup` from **System > Maintenance**. Keep the
+archived files until the restored data has been checked.
 
 Local `.db` backups are protected for the Windows account that created them.
 They are not a substitute for an off-device portable export when moving to
@@ -177,7 +245,10 @@ To restore a backup, use **System > Maintenance** and select a listed backup or
 enter the path to a backup from another location. Enter the passphrase when
 restoring a portable backup. **Restoring replaces the current database** with
 the contents of the selected backup; records added after that backup will be
-lost. Create a fresh backup first and verify the selected file before
+lost. The app creates a safety snapshot before restoring and checks database
+integrity and record relationships afterwards. If restore or migration fails,
+it attempts to reinstate the original database and reports whether rollback
+succeeded. Create a fresh backup first and verify the selected file before
 confirming.
 
 ## Important operating notes

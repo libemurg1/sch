@@ -50,6 +50,7 @@ impl BillingService {
             let enrollments = SqliteEnrollmentRepository::new(conn);
             let invoices = SqliteInvoiceRepository::new(conn);
             let discount_repository = SqliteDiscountRepository::new(conn);
+            let student_fees = SqliteStudentFeeRepository::new(conn);
             let numbers = NumberGenerator::new(conn);
 
             let structure = fee_structures
@@ -80,7 +81,9 @@ impl BillingService {
                     continue;
                 }
 
-                let charges: Vec<ChargeLine> = fee_items
+                let pending_student_fees =
+                    student_fees.list_pending(&enrollment.student_id, &input.term_id)?;
+                let mut charges: Vec<ChargeLine> = fee_items
                     .iter()
                     .map(|item| ChargeLine {
                         fee_item_id: Some(item.id.clone()),
@@ -90,6 +93,13 @@ impl BillingService {
                         discountable: item.discountable,
                     })
                     .collect();
+                charges.extend(pending_student_fees.iter().map(|fee| ChargeLine {
+                    fee_item_id: None,
+                    student_fee_id: Some(fee.id.clone()),
+                    description: fee.description.clone(),
+                    amount_cents: fee.amount_cents,
+                    discountable: fee.discountable,
+                }));
 
                 let granted =
                     discount_repository.list_for_student(&enrollment.student_id, &input.term_id)?;
@@ -115,7 +125,11 @@ impl BillingService {
                     .map(|(index, charge)| InvoiceItem {
                         id: Uuid::new_v4().to_string(),
                         invoice_id: String::new(),
-                        kind: "FEE".to_string(),
+                        kind: if charge.student_fee_id.is_some() {
+                            "STUDENT_FEE".to_string()
+                        } else {
+                            "FEE".to_string()
+                        },
                         description: charge.description.clone(),
                         amount_cents: charge.amount_cents,
                         discountable: charge.discountable,
@@ -162,6 +176,9 @@ impl BillingService {
 
                 invoices.create(&invoice)?;
                 invoices.create_items(&invoice.id, &items)?;
+                for fee in &pending_student_fees {
+                    student_fees.mark_billed(&fee.id, &invoice.id)?;
+                }
                 AuditService::record(
                     conn,
                     Some(actor_id),
@@ -446,8 +463,118 @@ impl BillingService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::dto::GenerateBatchInput;
     use crate::infrastructure::db::Db;
     use std::fs;
+
+    #[test]
+    fn class_invoice_includes_only_that_students_pending_fees() {
+        let dir = std::env::temp_dir().join(format!(
+            "sfs-invoice-student-fee-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_millis()
+        ));
+        let db = Db::open(&dir).unwrap();
+        db.transaction(|conn| {
+            conn.execute(
+                "INSERT INTO users (id, username, password_hash, display_name) \
+                 VALUES ('u1', 'admin', 'test-hash', 'Admin')",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO students (id, student_number, first_name, last_name, dob, admission_date) \
+                 VALUES ('s1', 'STU-1', 'Ada', 'One', '2015-01-01', '2026-01-01'), \
+                        ('s2', 'STU-2', 'Grace', 'Two', '2015-01-01', '2026-01-01')",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO terms (id, year, term_number, start_date, end_date) \
+                 VALUES ('t1', 2026, 1, '2026-01-01', '2026-04-01')",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO classes (id, name, grade_level, stream, academic_year, capacity) \
+                 VALUES ('c1', 'Grade 2 Blue', 2, 'Blue', 2026, 30)",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO enrollments (id, student_id, class_id, term_id, status) \
+                 VALUES ('e1', 's1', 'c1', 't1', 'ACTIVE'), \
+                        ('e2', 's2', 'c1', 't1', 'ACTIVE')",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO fee_structures (id, class_id, term_id, total_cents) \
+                 VALUES ('fs1', 'c1', 't1', 1000)",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO fee_items (id, fee_structure_id, description, amount_cents) \
+                 VALUES ('fi1', 'fs1', 'Tuition', 1000)",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO student_fees (id, student_id, term_id, description, amount_cents) \
+                 VALUES ('f1', 's1', 't1', 'Trip fee', 500)",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let invoices = BillingService::generate_batch(
+            &db,
+            GenerateBatchInput {
+                class_id: "c1".to_string(),
+                term_id: "t1".to_string(),
+                issue_date: "2026-01-01".to_string(),
+                due_date: "2026-02-01".to_string(),
+            },
+            "u1",
+        )
+        .unwrap();
+
+        assert_eq!(invoices.len(), 2);
+        let invoice_one = invoices
+            .iter()
+            .find(|invoice| invoice.student_id == "s1")
+            .unwrap();
+        let invoice_two = invoices
+            .iter()
+            .find(|invoice| invoice.student_id == "s2")
+            .unwrap();
+        assert_eq!(invoice_one.subtotal_cents, 1500);
+        assert_eq!(invoice_two.subtotal_cents, 1000);
+
+        let (fee_status, fee_invoice_id, student_fee_item_count): (String, String, i64) = db
+            .with_conn(|conn| {
+                Ok((
+                    conn.query_row(
+                        "SELECT status FROM student_fees WHERE id = 'f1'",
+                        [],
+                        |row| row.get(0),
+                    )?,
+                    conn.query_row(
+                        "SELECT invoice_id FROM student_fees WHERE id = 'f1'",
+                        [],
+                        |row| row.get(0),
+                    )?,
+                    conn.query_row(
+                        "SELECT COUNT(*) FROM invoice_items \
+                         WHERE invoice_id = ? AND kind = 'STUDENT_FEE'",
+                        [&invoice_one.id],
+                        |row| row.get(0),
+                    )?,
+                ))
+            })
+            .unwrap();
+        assert_eq!(fee_status, "BILLED");
+        assert_eq!(fee_invoice_id, invoice_one.id);
+        assert_eq!(student_fee_item_count, 1);
+
+        drop(db);
+        let _ = fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn cancelling_an_unpaid_supplementary_invoice_releases_its_fees() {

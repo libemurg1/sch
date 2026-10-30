@@ -11,6 +11,11 @@ pub fn protect_license_data(data: &[u8]) -> AppResult<Vec<u8>> {
 }
 
 #[cfg(windows)]
+pub fn protect_session_token(token: &[u8]) -> AppResult<Vec<u8>> {
+    protect_data(token, b"com.schoolfees.primaryschool.remembered-session.v1")
+}
+
+#[cfg(windows)]
 fn protect_data(key: &[u8], entropy_bytes: &[u8]) -> AppResult<Vec<u8>> {
     use std::ffi::c_void;
     use std::slice;
@@ -42,7 +47,7 @@ fn protect_data(key: &[u8], entropy_bytes: &[u8]) -> AppResult<Vec<u8>> {
     if succeeded == 0 {
         return Err(AppError::new(
             "KEY_PROTECTION_FAILED",
-            format!("Windows could not protect the database key: {}", unsafe {
+            format!("Windows could not protect application data: {}", unsafe {
                 GetLastError()
             }),
         ));
@@ -66,6 +71,14 @@ pub fn unprotect_license_data(protected_data: &[u8]) -> AppResult<Vec<u8>> {
     unprotect_data(
         protected_data,
         b"com.schoolfees.primaryschool.license-state.v1",
+    )
+}
+
+#[cfg(windows)]
+pub fn unprotect_session_token(protected_data: &[u8]) -> AppResult<Vec<u8>> {
+    unprotect_data(
+        protected_data,
+        b"com.schoolfees.primaryschool.remembered-session.v1",
     )
 }
 
@@ -101,9 +114,10 @@ fn unprotect_data(protected_key: &[u8], entropy_bytes: &[u8]) -> AppResult<Vec<u
     if succeeded == 0 {
         return Err(AppError::new(
             "KEY_UNPROTECTION_FAILED",
-            format!("Windows could not unlock the database key: {}", unsafe {
-                GetLastError()
-            }),
+            format!(
+                "Windows could not unlock protected application data: {}",
+                unsafe { GetLastError() }
+            ),
         ));
     }
 
@@ -139,9 +153,25 @@ pub fn protect_license_data(_data: &[u8]) -> AppResult<Vec<u8>> {
 }
 
 #[cfg(not(windows))]
+pub fn protect_session_token(_token: &[u8]) -> AppResult<Vec<u8>> {
+    Err(AppError::new(
+        "UNSUPPORTED_PLATFORM",
+        "Remembered sign-in is currently supported on Windows only",
+    ))
+}
+
+#[cfg(not(windows))]
 pub fn unprotect_license_data(_protected_data: &[u8]) -> AppResult<Vec<u8>> {
     Err(AppError::new(
         "UNSUPPORTED_PLATFORM",
         "Protected license state is currently supported on Windows only",
+    ))
+}
+
+#[cfg(not(windows))]
+pub fn unprotect_session_token(_protected_data: &[u8]) -> AppResult<Vec<u8>> {
+    Err(AppError::new(
+        "UNSUPPORTED_PLATFORM",
+        "Remembered sign-in is currently supported on Windows only",
     ))
 }

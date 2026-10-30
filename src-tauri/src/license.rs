@@ -30,6 +30,8 @@ pub struct LicenseStatus {
     pub state: String,
     pub activation_id: String,
     pub trial_days_remaining: i64,
+    pub trial_started_on: String,
+    pub trial_ends_on: String,
     pub license_school: Option<String>,
     pub starts_on: Option<String>,
     pub expires_on: Option<String>,
@@ -151,6 +153,7 @@ fn effective_today(store: &mut LicenseStore) -> AppResult<NaiveDate> {
 
 fn status_for(store: &LicenseStore, today: NaiveDate) -> AppResult<LicenseStatus> {
     let trial_start = parse_date(&store.trial_started_on)?;
+    let trial_end = trial_start + Duration::days(TRIAL_DAYS);
     let trial_elapsed = (today - trial_start).num_days().max(0);
     let trial_remaining = (TRIAL_DAYS - trial_elapsed).max(0);
 
@@ -172,6 +175,8 @@ fn status_for(store: &LicenseStore, today: NaiveDate) -> AppResult<LicenseStatus
                 state: state.to_string(),
                 activation_id: store.activation_id.clone(),
                 trial_days_remaining: trial_remaining,
+                trial_started_on: format_date(trial_start),
+                trial_ends_on: format_date(trial_end),
                 license_school: Some(payload.school),
                 starts_on: Some(payload.starts_on),
                 expires_on: Some(payload.expires_on),
@@ -188,6 +193,8 @@ fn status_for(store: &LicenseStore, today: NaiveDate) -> AppResult<LicenseStatus
                 state: "active".to_string(),
                 activation_id: store.activation_id.clone(),
                 trial_days_remaining: 0,
+                trial_started_on: format_date(trial_start),
+                trial_ends_on: format_date(trial_end),
                 license_school: Some(payload.school),
                 starts_on: Some(payload.starts_on),
                 expires_on: Some(payload.expires_on),
@@ -201,6 +208,8 @@ fn status_for(store: &LicenseStore, today: NaiveDate) -> AppResult<LicenseStatus
                 state: "grace".to_string(),
                 activation_id: store.activation_id.clone(),
                 trial_days_remaining: 0,
+                trial_started_on: format_date(trial_start),
+                trial_ends_on: format_date(trial_end),
                 license_school: Some(payload.school),
                 starts_on: Some(payload.starts_on),
                 expires_on: Some(payload.expires_on),
@@ -212,6 +221,8 @@ fn status_for(store: &LicenseStore, today: NaiveDate) -> AppResult<LicenseStatus
             state: "readOnly".to_string(),
             activation_id: store.activation_id.clone(),
             trial_days_remaining: 0,
+            trial_started_on: format_date(trial_start),
+            trial_ends_on: format_date(trial_end),
             license_school: Some(payload.school),
             starts_on: Some(payload.starts_on),
             expires_on: Some(payload.expires_on),
@@ -220,12 +231,13 @@ fn status_for(store: &LicenseStore, today: NaiveDate) -> AppResult<LicenseStatus
         });
     }
 
-    let trial_end = trial_start + Duration::days(TRIAL_DAYS);
     if today < trial_end {
         Ok(LicenseStatus {
             state: "trial".to_string(),
             activation_id: store.activation_id.clone(),
             trial_days_remaining: (trial_end - today).num_days(),
+            trial_started_on: format_date(trial_start),
+            trial_ends_on: format_date(trial_end),
             license_school: None,
             starts_on: None,
             expires_on: None,
@@ -239,6 +251,8 @@ fn status_for(store: &LicenseStore, today: NaiveDate) -> AppResult<LicenseStatus
                 state: "grace".to_string(),
                 activation_id: store.activation_id.clone(),
                 trial_days_remaining: 0,
+                trial_started_on: format_date(trial_start),
+                trial_ends_on: format_date(trial_end),
                 license_school: None,
                 starts_on: None,
                 expires_on: None,
@@ -250,6 +264,8 @@ fn status_for(store: &LicenseStore, today: NaiveDate) -> AppResult<LicenseStatus
                 state: "readOnly".to_string(),
                 activation_id: store.activation_id.clone(),
                 trial_days_remaining: 0,
+                trial_started_on: format_date(trial_start),
+                trial_ends_on: format_date(trial_end),
                 license_school: None,
                 starts_on: None,
                 expires_on: None,
@@ -453,6 +469,8 @@ mod tests {
         let grace = status_for(&store, parse_date("2026-10-15").unwrap()).unwrap();
         assert_eq!(grace.state, "grace");
         assert_eq!(grace.grace_days_remaining, 5);
+        assert_eq!(grace.trial_started_on, "2026-10-01");
+        assert_eq!(grace.trial_ends_on, "2026-10-15");
 
         let read_only = status_for(&store, parse_date("2026-10-20").unwrap()).unwrap();
         assert_eq!(read_only.state, "readOnly");

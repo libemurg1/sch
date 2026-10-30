@@ -59,6 +59,7 @@ import { getAppInfo } from "./setup"
 import { getLicenseStatus } from "./license"
 import { getInvoiceDetail, getStudentStatement } from "./statements"
 import {
+  importStudents,
   getStudent,
   getStudentAccount,
   listStudents,
@@ -335,6 +336,23 @@ export function useRegisterStudent(): UseMutationResult<
   return useMutation({
     mutationFn: registerStudent,
     onSuccess: invalidate,
+    meta: { successMessage: "Student registered successfully." },
+  })
+}
+
+export function useImportStudents(): UseMutationResult<
+  Student[],
+  unknown,
+  RegisterStudentInput[]
+> {
+  const invalidate = useInvalidateAll()
+  return useMutation({
+    mutationFn: importStudents,
+    onSuccess: invalidate,
+    meta: {
+      successMessage: (students: Student[]) =>
+        `${students.length} student${students.length === 1 ? "" : "s"} imported successfully.`,
+    },
   })
 }
 
@@ -347,6 +365,7 @@ export function useUpdateStudent(): UseMutationResult<
   return useMutation({
     mutationFn: updateStudent,
     onSuccess: invalidate,
+    meta: { successMessage: "Student details saved successfully." },
   })
 }
 
@@ -359,6 +378,7 @@ export function useUpdateStudentStatus(): UseMutationResult<
   return useMutation({
     mutationFn: updateStudentStatus,
     onSuccess: invalidate,
+    meta: { successMessage: "Student status updated successfully." },
   })
 }
 
@@ -368,7 +388,11 @@ export function useCreateClass(): UseMutationResult<
   CreateClassInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: createClass, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: createClass,
+    onSuccess: invalidate,
+    meta: { successMessage: "Class created successfully." },
+  })
 }
 
 export function useCreateTerm(): UseMutationResult<
@@ -377,7 +401,11 @@ export function useCreateTerm(): UseMutationResult<
   CreateTermInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: createTerm, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: createTerm,
+    onSuccess: invalidate,
+    meta: { successMessage: "Term created successfully." },
+  })
 }
 
 export function useUpdateClass(): UseMutationResult<
@@ -386,12 +414,20 @@ export function useUpdateClass(): UseMutationResult<
   UpdateClassInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: updateClass, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: updateClass,
+    onSuccess: invalidate,
+    meta: { successMessage: "Class updated successfully." },
+  })
 }
 
 export function useDeleteClass(): UseMutationResult<void, unknown, string> {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: deleteClass, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: deleteClass,
+    onSuccess: invalidate,
+    meta: { successMessage: "Class deleted successfully." },
+  })
 }
 
 export function useUpdateTerm(): UseMutationResult<
@@ -400,12 +436,20 @@ export function useUpdateTerm(): UseMutationResult<
   UpdateTermInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: updateTerm, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: updateTerm,
+    onSuccess: invalidate,
+    meta: { successMessage: "Term updated successfully." },
+  })
 }
 
 export function useDeleteTerm(): UseMutationResult<void, unknown, string> {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: deleteTerm, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: deleteTerm,
+    onSuccess: invalidate,
+    meta: { successMessage: "Term deleted successfully." },
+  })
 }
 
 export function useEnrollStudent(): UseMutationResult<
@@ -414,7 +458,11 @@ export function useEnrollStudent(): UseMutationResult<
   EnrollStudentInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: enrollStudent, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: enrollStudent,
+    onSuccess: invalidate,
+    meta: { successMessage: "Student enrolled successfully." },
+  })
 }
 
 export function useMoveStudent(): UseMutationResult<
@@ -423,7 +471,11 @@ export function useMoveStudent(): UseMutationResult<
   MoveStudentInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: moveStudent, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: moveStudent,
+    onSuccess: invalidate,
+    meta: { successMessage: "Student moved successfully." },
+  })
 }
 
 export function useCopyClasses(): UseMutationResult<
@@ -435,6 +487,7 @@ export function useCopyClasses(): UseMutationResult<
   return useMutation({
     mutationFn: ({ fromYear, toYear }) => copyClasses(fromYear, toYear),
     onSuccess: invalidate,
+    meta: { successMessage: "Classes copied successfully." },
   })
 }
 
@@ -444,7 +497,14 @@ export function useApplyPromotion(): UseMutationResult<
   ApplyPromotionInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: applyPromotion, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: applyPromotion,
+    onSuccess: invalidate,
+    meta: {
+      successMessage: (result: PromotionResult) =>
+        `Promotion completed for ${result.promoted} student${result.promoted === 1 ? "" : "s"}.`,
+    },
+  })
 }
 
 export function useSaveFeeStructure(): UseMutationResult<
@@ -453,7 +513,11 @@ export function useSaveFeeStructure(): UseMutationResult<
   SaveFeeStructureInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: saveFeeStructure, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: saveFeeStructure,
+    onSuccess: invalidate,
+    meta: { successMessage: "Fee structure saved successfully." },
+  })
 }
 
 export function useCreateDiscount(): UseMutationResult<
@@ -462,7 +526,11 @@ export function useCreateDiscount(): UseMutationResult<
   CreateDiscountInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: createDiscount, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: createDiscount,
+    onSuccess: invalidate,
+    meta: { successMessage: "Discount created successfully." },
+  })
 }
 
 export function useAssignDiscount(): UseMutationResult<
@@ -471,7 +539,11 @@ export function useAssignDiscount(): UseMutationResult<
   AssignDiscountInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: assignDiscount, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: assignDiscount,
+    onSuccess: invalidate,
+    meta: { successMessage: "Discount assigned successfully." },
+  })
 }
 
 export function useRevokeDiscount(): UseMutationResult<
@@ -483,6 +555,7 @@ export function useRevokeDiscount(): UseMutationResult<
   return useMutation({
     mutationFn: ({ grantId, reason }) => revokeDiscount(grantId, reason),
     onSuccess: invalidate,
+    meta: { successMessage: "Discount revoked successfully." },
   })
 }
 
@@ -492,7 +565,17 @@ export function useGenerateInvoiceBatch(): UseMutationResult<
   GenerateBatchInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: generateInvoiceBatch, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: generateInvoiceBatch,
+    onSuccess: invalidate,
+    meta: {
+      successMessage: (invoices: Invoice[]) =>
+        invoices.length === 0
+          ? "No new invoices were needed."
+          : `${invoices.length} invoice${invoices.length === 1 ? "" : "s"} created successfully.`,
+      showSuccessNotice: false,
+    },
+  })
 }
 
 export function useGenerateSupplementaryInvoice(): UseMutationResult<
@@ -504,6 +587,13 @@ export function useGenerateSupplementaryInvoice(): UseMutationResult<
   return useMutation({
     mutationFn: generateSupplementaryInvoice,
     onSuccess: invalidate,
+    meta: {
+      successMessage: (invoice: Invoice | null) =>
+        invoice
+          ? `Supplementary invoice ${invoice.invoiceNumber} created successfully.`
+          : "No new supplementary invoice was needed.",
+      showSuccessNotice: false,
+    },
   })
 }
 
@@ -513,7 +603,14 @@ export function useAssignStudentFee(): UseMutationResult<
   AssignStudentFeeInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: assignStudentFee, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: assignStudentFee,
+    onSuccess: invalidate,
+    meta: {
+      successMessage: "Student-specific charge added successfully.",
+      showSuccessNotice: false,
+    },
+  })
 }
 
 export function useCancelInvoice(): UseMutationResult<
@@ -525,6 +622,7 @@ export function useCancelInvoice(): UseMutationResult<
   return useMutation({
     mutationFn: ({ invoiceId, reason }) => cancelInvoice(invoiceId, reason),
     onSuccess: invalidate,
+    meta: { successMessage: "Invoice cancelled successfully." },
   })
 }
 
@@ -534,7 +632,14 @@ export function useRecordPayment(): UseMutationResult<
   RecordPaymentInput
 > {
   const invalidate = useInvalidateAll()
-  return useMutation({ mutationFn: recordPayment, onSuccess: invalidate })
+  return useMutation({
+    mutationFn: recordPayment,
+    onSuccess: invalidate,
+    meta: {
+      successMessage: "Payment recorded successfully.",
+      showSuccessNotice: false,
+    },
+  })
 }
 
 export function useReversePayment(): UseMutationResult<
@@ -546,5 +651,6 @@ export function useReversePayment(): UseMutationResult<
   return useMutation({
     mutationFn: ({ paymentId, reason }) => reversePayment(paymentId, reason),
     onSuccess: invalidate,
+    meta: { successMessage: "Payment reversed successfully." },
   })
 }

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom"
-import { useInvoices } from "../../api/queries"
+import { useInvoices, useStudents } from "../../api/queries"
 import {
   Card,
   EmptyState,
@@ -11,12 +11,16 @@ import {
   type Column,
 } from "../../components"
 import { Page } from "../../app/AppShell"
-import { formatDate } from "../../lib/dates"
+import { formatDate, studentName } from "../../lib/dates"
 import { formatMoney } from "../../lib/money"
 import type { Invoice } from "../../types/schema/Invoice"
 
 export function InvoicesPage() {
   const invoices = useInvoices()
+  const students = useStudents()
+  const studentNames = new Map(
+    (students.data ?? []).map((student) => [student.id, studentName(student)]),
+  )
 
   const invoiceColumns: Column<Invoice>[] = [
     {
@@ -34,7 +38,7 @@ export function InvoicesPage() {
     {
       key: "student",
       header: "Student",
-      render: (invoice) => invoice.studentId,
+      render: (invoice) => studentNames.get(invoice.studentId) ?? invoice.studentId,
     },
     {
       key: "kind",

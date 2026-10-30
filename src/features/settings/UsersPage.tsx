@@ -20,11 +20,13 @@ import {
   Input,
   Modal,
   PageHeader,
+  Select,
   Table,
   type Column,
 } from "../../components"
 import { formatDateTime } from "../../lib/dates"
 import type { User } from "../../types/schema/User"
+import type { UserRole } from "../../types/schema/UserRole"
 
 /** Account management: add colleagues, rename them, deactivate them, change a password. */
 export function UsersPage() {
@@ -40,6 +42,10 @@ export function UsersPage() {
     mutationFn: ({ user, active }: { user: User; active: boolean }) =>
       setUserActive(user.id, active),
     onSuccess: () => client.invalidateQueries({ queryKey: ["users"] }),
+    meta: {
+      successMessage: (_data: unknown, { active }: { active: boolean }) =>
+        `User ${active ? "enabled" : "disabled"} successfully.`,
+    },
   })
 
   const remove = useMutation({
@@ -48,6 +54,7 @@ export function UsersPage() {
       client.invalidateQueries()
       setDeleting(null)
     },
+    meta: { successMessage: "User deleted successfully." },
   })
 
   const columns: Column<User>[] = [
@@ -67,6 +74,15 @@ export function UsersPage() {
       key: "username",
       header: "Username",
       render: (user) => <span className="font-mono text-xs">{user.username}</span>,
+    },
+    {
+      key: "role",
+      header: "Role",
+      render: (user) => (
+        <Badge tone={user.role === "SCHOOL_ADMINISTRATOR" ? "info" : "neutral"}>
+          {roleLabel(user.role)}
+        </Badge>
+      ),
     },
     {
       key: "status",
@@ -153,6 +169,8 @@ export function UsersPage() {
         />
       </Card>
 
+      <RolePermissionsCard />
+
       <ChangePasswordCard />
 
       <AddUserModal
@@ -216,18 +234,21 @@ function EditUserModal({
 }) {
   const [displayName, setDisplayName] = useState("")
   const [username, setUsername] = useState("")
+  const [role, setRole] = useState<UserRole>("BURSAR")
   const [localError, setLocalError] = useState<string | null>(null)
 
   useEffect(() => {
     setDisplayName(user?.displayName ?? "")
     setUsername(user?.username ?? "")
+    setRole(user?.role ?? "BURSAR")
     setLocalError(null)
   }, [user])
 
   const mutation = useMutation({
     mutationFn: () =>
-      updateUser(user?.id as string, username.trim(), displayName.trim()),
+      updateUser(user?.id as string, username.trim(), displayName.trim(), role),
     onSuccess: onSaved,
+    meta: { successMessage: "User details saved successfully." },
   })
 
   const submit = (event: FormEvent) => {
@@ -249,7 +270,11 @@ function EditUserModal({
       )
       return
     }
-    if (name === user?.displayName && login === user?.username) {
+    if (
+      name === user?.displayName &&
+      login === user?.username &&
+      role === user?.role
+    ) {
       onClose()
       return
     }
@@ -261,7 +286,7 @@ function EditUserModal({
       open={user !== null}
       onClose={onClose}
       title="Edit user"
-      description="Change the name shown in the app and on receipts, or the sign-in username."
+      description="Change the person's sign-in details and access role."
     >
       <form onSubmit={submit} className="space-y-4">
         <Field label="Full name" htmlFor="editDisplayName" required>
@@ -287,6 +312,21 @@ function EditUserModal({
             maxLength={32}
             required
           />
+        </Field>
+        <Field
+          label="Role"
+          htmlFor="editUserRole"
+          hint="Changing a role takes effect on the user's next authorized action."
+          required
+        >
+          <Select
+            id="editUserRole"
+            value={role}
+            onChange={(event) => setRole(parseRole(event.target.value))}
+          >
+            <option value="BURSAR">Bursar</option>
+            <option value="SCHOOL_ADMINISTRATOR">School Administrator</option>
+          </Select>
         </Field>
 
         {localError ? (
@@ -328,6 +368,10 @@ function ChangePasswordCard() {
       setConfirm("")
       setDone(true)
       window.setTimeout(() => setDone(false), 2500)
+    },
+    meta: {
+      successMessage: "Password changed successfully.",
+      showSuccessNotice: false,
     },
   })
 
@@ -418,6 +462,7 @@ function AddUserModal({
 }) {
   const [displayName, setDisplayName] = useState("")
   const [username, setUsername] = useState("")
+  const [role, setRole] = useState<UserRole>("BURSAR")
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
   const [localError, setLocalError] = useState<string | null>(null)
@@ -429,8 +474,10 @@ function AddUserModal({
       setUsername("")
       setPassword("")
       setConfirm("")
+      setRole("BURSAR")
       onCreated()
     },
+    meta: { successMessage: "User created successfully." },
   })
 
   const submit = (event: FormEvent) => {
@@ -448,6 +495,7 @@ function AddUserModal({
       displayName: displayName.trim(),
       username: username.trim(),
       password,
+      role,
     })
   }
 
@@ -456,7 +504,7 @@ function AddUserModal({
       open={open}
       onClose={onClose}
       title="Add a user"
-      description="They can sign in with this username and password."
+      description="Choose the access level they need. You can change it later."
     >
       <form onSubmit={submit} className="space-y-4">
         <Field label="Full name" htmlFor="newDisplayName" required>
@@ -480,6 +528,21 @@ function AddUserModal({
             minLength={3}
             required
           />
+        </Field>
+        <Field
+          label="Role"
+          htmlFor="newUserRole"
+          hint="Bursar is the recommended role for finance staff."
+          required
+        >
+          <Select
+            id="newUserRole"
+            value={role}
+            onChange={(event) => setRole(parseRole(event.target.value))}
+          >
+            <option value="BURSAR">Bursar</option>
+            <option value="SCHOOL_ADMINISTRATOR">School Administrator</option>
+          </Select>
         </Field>
         <Field label="Password" htmlFor="newUserPassword" required>
           <Input
@@ -527,5 +590,59 @@ function AddUserModal({
         </div>
       </form>
     </Modal>
+  )
+}
+
+function roleLabel(role: UserRole) {
+  return role === "SCHOOL_ADMINISTRATOR" ? "School Administrator" : "Bursar"
+}
+
+function parseRole(value: string): UserRole {
+  return value === "SCHOOL_ADMINISTRATOR"
+    ? "SCHOOL_ADMINISTRATOR"
+    : "BURSAR"
+}
+
+function RolePermissionsCard() {
+  const rows: Array<[string, boolean]> = [
+    ["View students, invoices, payments, statements, reports and audit history", true],
+    ["Register or edit student details", false],
+    ["Manage classes, terms, enrollment and promotion", true],
+    ["Edit fee structures", true],
+    ["Create and assign discounts", true],
+    ["Raise class and supplementary invoices", true],
+    ["Record payments and print receipts", true],
+    ["Reverse payments", false],
+    ["Cancel invoices", false],
+    ["Manage users, school settings, licenses and backups", false],
+  ]
+
+  return (
+    <Card title="Role permissions" description="School Administrators have full access. Bursar access is limited to the duties shown below.">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+          <thead>
+            <tr className="text-xs uppercase tracking-wide text-slate-500">
+              <th scope="col" className="py-2 pr-4 font-medium">Capability</th>
+              <th scope="col" className="px-4 py-2 font-medium">School Administrator</th>
+              <th scope="col" className="px-4 py-2 font-medium">Bursar</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map(([capability, bursarAllowed]) => (
+              <tr key={capability}>
+                <th scope="row" className="py-2 pr-4 font-normal text-slate-700">
+                  {capability}
+                </th>
+                <td className="px-4 py-2 text-slate-700">Allowed</td>
+                <td className="px-4 py-2 text-slate-700">
+                  {bursarAllowed ? "Allowed" : "Not allowed"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   )
 }

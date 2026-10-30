@@ -4,6 +4,8 @@ export interface LicenseStatus {
   state: "trial" | "active" | "grace" | "readOnly" | "notYetValid"
   activationId: string
   trialDaysRemaining: number
+  trialStartedOn: string
+  trialEndsOn: string
   licenseSchool: string | null
   startsOn: string | null
   expiresOn: string | null

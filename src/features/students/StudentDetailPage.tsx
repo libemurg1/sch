@@ -13,6 +13,7 @@ import {
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorBanner,
   Loading,
@@ -23,6 +24,7 @@ import {
   type Column,
 } from "../../components"
 import { Page } from "../../app/AppShell"
+import { useSession } from "../../app/session"
 import { formatDate, formatDateTime, formatTermLabel, studentName } from "../../lib/dates"
 import { formatMoney } from "../../lib/money"
 import type { Enrollment } from "../../types/schema/Enrollment"
@@ -33,6 +35,7 @@ import { StudentFormModal } from "./StudentFormModal"
 const STATUSES = ["ACTIVE", "INACTIVE", "GRADUATED"]
 
 export function StudentDetailPage() {
+  const { user } = useSession()
   const { studentId } = useParams()
   const student = useStudent(studentId)
   const account = useStudentAccount(studentId)
@@ -45,6 +48,7 @@ export function StudentDetailPage() {
 
   const [nextStatus, setNextStatus] = useState("")
   const [editing, setEditing] = useState(false)
+  const [confirmStatus, setConfirmStatus] = useState(false)
 
   if (student.isLoading) {
     return (
@@ -79,8 +83,8 @@ export function StudentDetailPage() {
   }
 
   const record = student.data
-  const classNames = new Map(
-    (classes.data ?? []).map((klass) => [klass.id, klass.name]),
+  const classById = new Map(
+    (classes.data ?? []).map((klass) => [klass.id, klass]),
   )
   const termLabels = new Map(
     (terms.data ?? []).map((term) => [term.id, formatTermLabel(term)]),
@@ -89,13 +93,18 @@ export function StudentDetailPage() {
   const enrollmentColumns: Column<Enrollment>[] = [
     {
       key: "term",
-      header: "Term",
+      header: "School year / term",
       render: (enrollment) => termLabels.get(enrollment.termId) ?? "-",
     },
     {
       key: "class",
-      header: "Class",
-      render: (enrollment) => classNames.get(enrollment.classId) ?? "-",
+      header: "Grade / class",
+      render: (enrollment) => {
+        const klass = classById.get(enrollment.classId)
+        return klass
+          ? `${klass.name} · ${klass.academicYear}`
+          : enrollment.classId
+      },
     },
     {
       key: "enrolled",
@@ -208,9 +217,11 @@ export function StudentDetailPage() {
         }
         actions={
           <>
-            <Button variant="secondary" onClick={() => setEditing(true)}>
-              Edit
-            </Button>
+            {user?.role === "SCHOOL_ADMINISTRATOR" ? (
+              <Button variant="secondary" onClick={() => setEditing(true)}>
+                Edit
+              </Button>
+            ) : null}
             <Link
               to={`/statements?studentId=${record.id}`}
               className="rounded-md bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
@@ -240,7 +251,8 @@ export function StudentDetailPage() {
           </dl>
         </Card>
 
-        <Card title="Status" className="sm:col-span-2">
+        {user?.role === "SCHOOL_ADMINISTRATOR" ? (
+          <Card title="Status" className="sm:col-span-2">
           <p className="text-sm text-slate-500">
             Students are never deleted. Moving a student to another status keeps
             their financial history intact.
@@ -269,12 +281,7 @@ export function StudentDetailPage() {
               variant="secondary"
               disabled={!nextStatus || nextStatus === record.status}
               loading={updateStatus.isPending}
-              onClick={() =>
-                updateStatus.mutate(
-                  { studentId: record.id, status: nextStatus },
-                  { onSuccess: () => setNextStatus("") },
-                )
-              }
+              onClick={() => setConfirmStatus(true)}
             >
               Update status
             </Button>
@@ -282,7 +289,8 @@ export function StudentDetailPage() {
           {updateStatus.isError ? (
             <ErrorBanner error={updateStatus.error} className="mt-3" />
           ) : null}
-        </Card>
+          </Card>
+        ) : null}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -314,7 +322,10 @@ export function StudentDetailPage() {
         </Card>
       </div>
 
-      <Card title="Enrollments">
+      <Card
+        title="Academic history"
+        description="Each row shows the student’s class placement for that term. Previous years remain here after promotion."
+      >
         {enrollments.isLoading ? (
           <Loading />
         ) : enrollments.isError ? (
@@ -370,6 +381,33 @@ export function StudentDetailPage() {
         onClose={() => setEditing(false)}
         student={record}
       />
+      <ConfirmDialog
+        open={confirmStatus}
+        title="Confirm student status change"
+        confirmLabel="Update status"
+        loading={updateStatus.isPending}
+        error={updateStatus.error}
+        onCancel={() => {
+          updateStatus.reset()
+          setConfirmStatus(false)
+        }}
+        onConfirm={() =>
+          updateStatus.mutate(
+            { studentId: record.id, status: nextStatus },
+            {
+              onSuccess: () => {
+                setNextStatus("")
+                setConfirmStatus(false)
+              },
+            },
+          )
+        }
+      >
+        Changing <strong>{studentName(record)}</strong> from{" "}
+        <strong>{record.status}</strong> to <strong>{nextStatus}</strong> affects
+        how the student appears in active school workflows. Their history and
+        financial records remain preserved.
+      </ConfirmDialog>
     </Page>
   )
 }

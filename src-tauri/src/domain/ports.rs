@@ -179,7 +179,13 @@ pub trait UserRepository {
     fn list(&self) -> AppResult<Vec<User>>;
     fn count(&self) -> AppResult<i64>;
     fn update_password(&self, user_id: &str, password_hash: &str) -> AppResult<()>;
-    fn update_profile(&self, user_id: &str, username: &str, display_name: &str) -> AppResult<()>;
+    fn update_profile(
+        &self,
+        user_id: &str,
+        username: &str,
+        display_name: &str,
+        role: crate::domain::auth::UserRole,
+    ) -> AppResult<()>;
     fn set_active(&self, user_id: &str, is_active: bool) -> AppResult<()>;
     fn record_login(&self, user_id: &str, at: &str) -> AppResult<()>;
     fn delete(&self, user_id: &str) -> AppResult<()>;

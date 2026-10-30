@@ -8,4 +8,4 @@ export type AuthStatus = {
 /**
  * False on a first run, in which case the UI must offer to create an admin.
  */
-hasUsers: boolean, user: User | null, };
+hasUsers: boolean, user: User | null, sessionRestoreNotice: string | null, };

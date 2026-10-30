@@ -367,6 +367,21 @@ pub struct AppInfo {
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 #[ts(export)]
+pub struct DatabaseHealth {
+    pub checked_at: String,
+    pub schema_version: i32,
+    pub expected_schema_version: i32,
+    pub integrity_check: String,
+    pub foreign_keys_ok: bool,
+    pub backup_count: usize,
+    pub latest_backup_path: Option<String>,
+    pub latest_backup_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+#[ts(export)]
 pub struct MoveStudentInput {
     pub student_id: String,
     pub term_id: String,

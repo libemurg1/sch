@@ -8,7 +8,7 @@ import { AuthLayout } from "./AuthLayout"
  * person through the door creates the administrator account.
  */
 export function FirstRunPage() {
-  const { bootstrap } = useSession()
+  const { bootstrap, status } = useSession()
   const [schoolName, setSchoolName] = useState("")
   const [displayName, setDisplayName] = useState("")
   const [username, setUsername] = useState("")
@@ -33,12 +33,21 @@ export function FirstRunPage() {
       displayName: displayName.trim(),
       username: username.trim(),
       password,
+      role: "SCHOOL_ADMINISTRATOR",
       schoolName: schoolName.trim(),
     })
   }
 
   return (
     <AuthLayout subtitle="Welcome. Create the administrator account to get started.">
+      {status?.sessionRestoreNotice ? (
+        <p
+          role="alert"
+          className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-inset ring-amber-200"
+        >
+          {status.sessionRestoreNotice}
+        </p>
+      ) : null}
       <form onSubmit={submit} className="space-y-4">
         <Field
           label="School name"

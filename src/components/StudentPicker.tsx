@@ -1,6 +1,5 @@
-import { useMemo, useState } from "react"
 import { studentName } from "../lib/dates"
-import { Input, Select } from "./Input"
+import { SearchableSelect } from "./SearchableSelect"
 
 export interface StudentLike {
   id: string
@@ -9,6 +8,9 @@ export interface StudentLike {
   lastName?: string | null
   otherNames?: string | null
   middleName?: string | null
+  guardianName?: string | null
+  guardianPhone?: string | null
+  guardianEmail?: string | null
 }
 
 function displayStudentName(student: StudentLike): string {
@@ -31,40 +33,29 @@ export function StudentPicker<T extends StudentLike>({
   students: T[]
   placeholder?: string
 }) {
-  const [search, setSearch] = useState("")
-
-  const filteredStudents = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    if (!term) {
-      return students
-    }
-
-    return students.filter((student) => {
-      const label = `${student.studentNumber} ${displayStudentName(student)}`.toLowerCase()
-      return label.includes(term)
-    })
-  }, [search, students])
-
   return (
-    <div className="space-y-2">
-      <Input
-        id={`${id}-search`}
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-        placeholder="Search by name or student number"
-      />
-      <Select
-        id={id}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">{placeholder}</option>
-        {filteredStudents.map((student) => (
-          <option key={student.id} value={student.id}>
-            {student.studentNumber} - {displayStudentName(student)}
-          </option>
-        ))}
-      </Select>
-    </div>
+    <SearchableSelect
+      id={id}
+      value={value}
+      onChange={onChange}
+      options={students.map((student) => ({
+        id: student.id,
+        label: `${student.studentNumber} - ${displayStudentName(student)}`,
+        searchText: [
+          student.studentNumber,
+          student.firstName,
+          student.lastName,
+          student.otherNames,
+          student.middleName,
+          student.guardianName,
+          student.guardianPhone,
+          student.guardianEmail,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      }))}
+      placeholder={placeholder}
+      searchPlaceholder="Search name, student number, or guardian"
+    />
   )
 }

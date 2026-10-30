@@ -13,6 +13,7 @@ import {
 import {
   Button,
   Card,
+  ConfirmDialog,
   ErrorBanner,
   Field,
   Input,
@@ -21,8 +22,8 @@ import {
   StudentPicker,
 } from "../../components"
 import { Page } from "../../app/AppShell"
-import { formatTermLabel } from "../../lib/dates"
-import { parseMoneyToCents } from "../../lib/money"
+import { formatDate, formatTermLabel } from "../../lib/dates"
+import { formatMoney, parseMoneyToCents } from "../../lib/money"
 
 export function BillingPage() {
   const classes = useClasses()
@@ -35,11 +36,13 @@ export function BillingPage() {
 
   const [classId, setClassId] = useState("")
   const [termId, setTermId] = useState("")
-  const [issueDate, setIssueDate] = useState(today)
-  const [dueDate, setDueDate] = useState(today)
+  const [issueDate, setIssueDate] = useState("")
+  const [dueDate, setDueDate] = useState("")
 
   const [supplementStudentId, setSupplementStudentId] = useState("")
   const [supplementTermId, setSupplementTermId] = useState("")
+  const [supplementIssueDate, setSupplementIssueDate] = useState("")
+  const [supplementDueDate, setSupplementDueDate] = useState("")
 
   const [feeStudentId, setFeeStudentId] = useState("")
   const [feeTermId, setFeeTermId] = useState("")
@@ -47,10 +50,21 @@ export function BillingPage() {
   const [feeAmountText, setFeeAmountText] = useState("")
   const [feeDiscountable, setFeeDiscountable] = useState(true)
   const [feeError, setFeeError] = useState<string | null>(null)
+  const [confirmAction, setConfirmAction] = useState<
+    "class" | "supplementary" | "fee" | null
+  >(null)
 
   const batch = useGenerateInvoiceBatch()
   const supplementary = useGenerateSupplementaryInvoice()
   const studentFee = useAssignStudentFee()
+
+  useEffect(() => {
+    if (!today) return
+    if (!issueDate) setIssueDate(today)
+    if (!dueDate) setDueDate(today)
+    if (!supplementIssueDate) setSupplementIssueDate(today)
+    if (!supplementDueDate) setSupplementDueDate(today)
+  }, [today, issueDate, dueDate, supplementIssueDate, supplementDueDate])
 
   useEffect(() => {
     if (!termId && activeTerm.data) {
@@ -76,25 +90,6 @@ export function BillingPage() {
     }
   }, [classes.data, classId])
 
-  const runBatch = () => {
-    batch.mutate(
-      { classId, termId, issueDate, dueDate },
-      { onSuccess: () => batch.reset() },
-    )
-  }
-
-  const runSupplementary = () => {
-    supplementary.mutate(
-      {
-        studentId: supplementStudentId,
-        termId: supplementTermId,
-        issueDate,
-        dueDate,
-      },
-      { onSuccess: () => supplementary.reset() },
-    )
-  }
-
   const runStudentFee = () => {
     const cents = parseMoneyToCents(feeAmountText)
     if (feeDescription.trim() === "") {
@@ -106,31 +101,82 @@ export function BillingPage() {
       return
     }
     setFeeError(null)
-    studentFee.mutate(
-      {
-        studentId: feeStudentId,
-        termId: feeTermId,
-        description: feeDescription.trim(),
-        amountCents: cents,
-        discountable: feeDiscountable,
-      },
-      {
-        onSuccess: () => {
-          setFeeDescription("")
-          setFeeAmountText("")
-          studentFee.reset()
-        },
-      },
-    )
+    setConfirmAction("fee")
   }
 
+  const selectedClass = (classes.data ?? []).find((item) => item.id === classId)
+  const selectedTerm = (terms.data ?? []).find((item) => item.id === termId)
+  const supplementaryStudent = (students.data ?? []).find(
+    (student) => student.id === supplementStudentId,
+  )
+  const feeStudent = (students.data ?? []).find(
+    (student) => student.id === feeStudentId,
+  )
+  const feeTerm = (terms.data ?? []).find((term) => term.id === feeTermId)
+
+  const confirmSelectedAction = () => {
+    if (confirmAction === "class") {
+      batch.mutate(
+        { classId, termId, issueDate, dueDate },
+        { onSuccess: () => setConfirmAction(null) },
+      )
+    } else if (confirmAction === "supplementary") {
+      supplementary.mutate(
+        {
+          studentId: supplementStudentId,
+          termId: supplementTermId,
+          issueDate: supplementIssueDate,
+          dueDate: supplementDueDate,
+        },
+        { onSuccess: () => setConfirmAction(null) },
+      )
+    } else if (confirmAction === "fee") {
+      const cents = parseMoneyToCents(feeAmountText)
+      if (cents !== null) {
+        studentFee.mutate(
+          {
+            studentId: feeStudentId,
+            termId: feeTermId,
+            description: feeDescription.trim(),
+            amountCents: cents,
+            discountable: feeDiscountable,
+          },
+          {
+            onSuccess: () => {
+              setFeeDescription("")
+              setFeeAmountText("")
+              setConfirmAction(null)
+            },
+          },
+        )
+      }
+    }
+  }
+
+  const confirmLoading =
+    (confirmAction === "class" && batch.isPending) ||
+    (confirmAction === "supplementary" && supplementary.isPending) ||
+    (confirmAction === "fee" && studentFee.isPending)
+  const confirmError =
+    confirmAction === "class"
+      ? batch.error
+      : confirmAction === "supplementary"
+        ? supplementary.error
+        : studentFee.error
+
   const createdCount = Array.isArray(batch.data) ? batch.data.length : 0
+  const batchDatesInvalid =
+    !issueDate || !dueDate || dueDate < issueDate
+  const supplementaryDatesInvalid =
+    !supplementIssueDate ||
+    !supplementDueDate ||
+    supplementDueDate < supplementIssueDate
 
   return (
     <Page>
       <PageHeader
         title="Billing"
-        description="Raise term invoices for a class, supplementary invoices for late fees, and ad-hoc charges."
+        description="Add student-specific charges before class billing to include them on the student's term invoice."
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -191,10 +237,20 @@ export function BillingPage() {
                   onChange={(event) => setIssueDate(event.target.value)}
                 />
               </Field>
-              <Field label="Due date" htmlFor="bill-due" required>
+              <Field
+                label="Due date"
+                htmlFor="bill-due"
+                required
+                error={
+                  dueDate && issueDate && dueDate < issueDate
+                    ? "Due date cannot be before the issue date"
+                    : null
+                }
+              >
                 <Input
                   id="bill-due"
                   type="date"
+                  min={issueDate}
                   value={dueDate}
                   onChange={(event) => setDueDate(event.target.value)}
                 />
@@ -202,9 +258,9 @@ export function BillingPage() {
             </div>
 
             <Button
-              onClick={runBatch}
+              onClick={() => setConfirmAction("class")}
               loading={batch.isPending}
-              disabled={!classId || !termId}
+              disabled={!classId || !termId || batchDatesInvalid}
             >
               Raise invoices
             </Button>
@@ -213,7 +269,7 @@ export function BillingPage() {
 
         <Card
           title="Supplementary invoice"
-          description="Bills a student's pending ad-hoc charges onto their own invoice."
+          description="Use this for charges added after the student's class invoice has already been issued."
         >
           <div className="space-y-4">
             {supplementary.isError ? (
@@ -231,7 +287,10 @@ export function BillingPage() {
               <StudentPicker
                 id="supp-student"
                 value={supplementStudentId}
-                onChange={setSupplementStudentId}
+                onChange={(value) => {
+                  setSupplementStudentId(value)
+                  supplementary.reset()
+                }}
                 students={students.data ?? []}
               />
             </Field>
@@ -250,11 +309,48 @@ export function BillingPage() {
               />
             </Field>
 
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Issue date" htmlFor="supp-issue" required>
+                <Input
+                  id="supp-issue"
+                  type="date"
+                  value={supplementIssueDate}
+                  onChange={(event) =>
+                    setSupplementIssueDate(event.target.value)
+                  }
+                />
+              </Field>
+              <Field
+                label="Due date"
+                htmlFor="supp-due"
+                required
+                error={
+                  supplementDueDate &&
+                  supplementIssueDate &&
+                  supplementDueDate < supplementIssueDate
+                    ? "Due date cannot be before the issue date"
+                    : null
+                }
+              >
+                <Input
+                  id="supp-due"
+                  type="date"
+                  min={supplementIssueDate}
+                  value={supplementDueDate}
+                  onChange={(event) => setSupplementDueDate(event.target.value)}
+                />
+              </Field>
+            </div>
+
             <Button
               variant="secondary"
-              onClick={runSupplementary}
+              onClick={() => setConfirmAction("supplementary")}
               loading={supplementary.isPending}
-              disabled={!supplementStudentId || !supplementTermId}
+              disabled={
+                !supplementStudentId ||
+                !supplementTermId ||
+                supplementaryDatesInvalid
+              }
             >
               Raise supplementary invoice
             </Button>
@@ -263,14 +359,15 @@ export function BillingPage() {
       </div>
 
       <Card
-        title="Ad-hoc student fee"
-        description="Records a one-off charge, such as a late fee. It stays pending until it is billed on a supplementary invoice."
+        title="Student-specific charge"
+        description="Record an extra charge for one student. Pending charges are included when you next raise that student's class invoice; use a supplementary invoice if the class invoice already exists."
       >
         <div className="space-y-4">
           {studentFee.isError ? <ErrorBanner error={studentFee.error} /> : null}
           {studentFee.isSuccess ? (
             <div className="rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-800 ring-1 ring-inset ring-emerald-200">
-              The charge has been recorded. Bill it on a supplementary invoice.
+              The charge has been recorded. It will be included on the class
+              invoice if it has not been raised yet.
             </div>
           ) : null}
 
@@ -279,7 +376,10 @@ export function BillingPage() {
               <StudentPicker
                 id="fee-student"
                 value={feeStudentId}
-                onChange={setFeeStudentId}
+                onChange={(value) => {
+                  setFeeStudentId(value)
+                  studentFee.reset()
+                }}
                 students={students.data ?? []}
               />
             </Field>
@@ -287,7 +387,10 @@ export function BillingPage() {
               <SearchablePicker
                 id="fee-term"
                 value={feeTermId}
-                onChange={setFeeTermId}
+                onChange={(value) => {
+                  setFeeTermId(value)
+                  studentFee.reset()
+                }}
                 options={(terms.data ?? []).map((term) => ({
                   id: term.id,
                   label: formatTermLabel(term),
@@ -304,6 +407,7 @@ export function BillingPage() {
                 onChange={(event) => {
                   setFeeDescription(event.target.value)
                   setFeeError(null)
+                  studentFee.reset()
                 }}
               />
             </Field>
@@ -316,6 +420,7 @@ export function BillingPage() {
                 onChange={(event) => {
                   setFeeAmountText(event.target.value)
                   setFeeError(null)
+                  studentFee.reset()
                 }}
                 error={feeError}
               />
@@ -327,7 +432,10 @@ export function BillingPage() {
               <input
                 type="checkbox"
                 checked={feeDiscountable}
-                onChange={(event) => setFeeDiscountable(event.target.checked)}
+                onChange={(event) => {
+                  setFeeDiscountable(event.target.checked)
+                  studentFee.reset()
+                }}
                 className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600"
               />
               Percentage discounts can apply to this charge
@@ -344,6 +452,72 @@ export function BillingPage() {
         </div>
       </Card>
 
+      <ConfirmDialog
+        open={confirmAction !== null}
+        title={
+          confirmAction === "class"
+            ? "Review class billing"
+            : confirmAction === "supplementary"
+              ? "Review supplementary invoice"
+              : "Review student charge"
+        }
+        confirmLabel={
+          confirmAction === "class"
+            ? "Create invoices"
+            : confirmAction === "supplementary"
+              ? "Create invoice"
+              : "Add charge"
+        }
+        loading={confirmLoading}
+        error={confirmError}
+        onCancel={() => {
+          if (confirmAction === "class") batch.reset()
+          if (confirmAction === "supplementary") supplementary.reset()
+          if (confirmAction === "fee") studentFee.reset()
+          setConfirmAction(null)
+        }}
+        onConfirm={confirmSelectedAction}
+      >
+        {confirmAction === "class" ? (
+          <p>
+            Create term invoices for eligible students in{" "}
+            <strong>{selectedClass?.name ?? "the selected class"}</strong> for{" "}
+            <strong>
+              {selectedTerm ? formatTermLabel(selectedTerm) : "the selected term"}
+            </strong>
+            . Students with an existing invoice for this term will not receive a
+            duplicate. Issue date: {formatDate(issueDate)}; due date:{" "}
+            {formatDate(dueDate)}. Review the class fee structure before
+            continuing.
+          </p>
+        ) : confirmAction === "supplementary" ? (
+          <p>
+            Create a supplementary invoice for{" "}
+            <strong>
+              {supplementaryStudent
+                ? `${supplementaryStudent.firstName} ${supplementaryStudent.lastName}`
+                : "the selected student"}
+            </strong>
+            . Issue date: {formatDate(supplementIssueDate)}; due date:{" "}
+            {formatDate(supplementDueDate)}. Confirm that this student needs a
+            separate invoice for eligible student-specific charges.
+          </p>
+        ) : (
+          <p>
+            Add <strong>{feeDescription}</strong> for{" "}
+            <strong>
+              {feeStudent
+                ? `${feeStudent.firstName} ${feeStudent.lastName}`
+                : "the selected student"}
+            </strong>{" "}
+            in <strong>{feeTerm ? formatTermLabel(feeTerm) : "the selected term"}</strong>{" "}
+            for <strong>{formatMoney(parseMoneyToCents(feeAmountText) ?? 0)}</strong>.
+            {feeDiscountable
+              ? " Applicable discounts may affect this charge."
+              : " This charge is not discountable."}
+          </p>
+        )}
+      </ConfirmDialog>
     </Page>
   )
 }

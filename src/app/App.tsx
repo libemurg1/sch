@@ -53,15 +53,45 @@ export default function App() {
               <Route path="payments" element={<PaymentsPage />} />
               <Route path="statements" element={<StatementsPage />} />
               <Route path="reports" element={<ReportsPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-              <Route path="users" element={<UsersPage />} />
-              <Route path="maintenance" element={<MaintenancePage />} />
+              <Route
+                path="settings"
+                element={
+                  <AdministratorOnly>
+                    <SettingsPage />
+                  </AdministratorOnly>
+                }
+              />
+              <Route
+                path="users"
+                element={
+                  <AdministratorOnly>
+                    <UsersPage />
+                  </AdministratorOnly>
+                }
+              />
+              <Route
+                path="maintenance"
+                element={
+                  <AdministratorOnly>
+                    <MaintenancePage />
+                  </AdministratorOnly>
+                }
+              />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>
         </AuthGate>
       </HashRouter>
     </Providers>
+  )
+}
+
+function AdministratorOnly({ children }: { children: React.ReactNode }) {
+  const { user } = useSession()
+  return user?.role === "SCHOOL_ADMINISTRATOR" ? (
+    <>{children}</>
+  ) : (
+    <Navigate to="/" replace />
   )
 }
 
